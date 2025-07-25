@@ -8,6 +8,7 @@ from docx import Document
 import openpyxl
 from pptx import Presentation
 import PyPDF2
+import logging
 
 # ------ CONFIG ------
 # Configuration can be supplied via command line or environment variables.
@@ -26,6 +27,8 @@ def parse_args():
                         help="Ollama model name")
     parser.add_argument("--resume", action="store_true",
                         help="Resume from existing folder_contexts.json")
+    parser.add_argument("--verbose", action="store_true",
+                        help="Enable verbose output")
     return parser.parse_args()
 
 # --- File Extractors ---
@@ -133,9 +136,9 @@ def call_ollama(prompt, model, retries=1):
         except subprocess.CalledProcessError as e:
             if attempt >= retries:
                 err = e.stderr.decode("utf-8", errors="replace")
-                print(f"[ollama error] {err}")
+                logging.error("[ollama error] %s", err)
                 return ""
-            print("Ollama failed, retrying...")
+            logging.warning("Ollama failed, retrying...")
 
 def get_file_summary(filepath, ollama_model):
     content = extract_text_file(filepath)
@@ -176,6 +179,8 @@ def get_folders_in_bottom_up_order(tree, root_dir):
 
 def main():
     args = parse_args()
+    logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO,
+                        format="%(message)s")
     if not args.root:
         raise SystemExit("--root must be specified (or FO_ROOT_DIR env variable)")
 
@@ -192,10 +197,10 @@ def main():
 
     for folder in process_order:
         if folder in folder_contexts:
-            print(f"Skipping: {folder}")
+            logging.info("Skipping: %s", folder)
             continue
 
-        print(f"\nProcessing: {folder}")
+        logging.info("\nProcessing: %s", folder)
         # --- File-based summaries
         sample_files = get_sample_files(folder, args.samples)
         sample_summaries = []
@@ -224,16 +229,17 @@ Subfolder context summaries:
 
 Please summarize the main purpose or topic of this folder in 2-3 sentences, taking into account both its own files and the main themes of its immediate subfolders (if any). If you see outliers, ignore them. Only output the summary text.
 """
-        print(f"  Calling Ollama ({args.model})...")
+        logging.info("  Calling Ollama (%s)...", args.model)
         folder_summary = call_ollama(prompt, model=args.model)
-        print(f"  => {folder_summary}")
+        logging.info("  => %s", folder_summary)
 
         folder_contexts[folder] = folder_summary
 
         with open(out_json, "w", encoding="utf-8") as f:
             json.dump(folder_contexts, f, ensure_ascii=False, indent=2)
+        logging.info("Saved summary for %s", folder)
 
-    print(f"\nSaved folder contexts to {out_json}")
+    logging.info("\nSaved folder contexts to %s", out_json)
 
 if __name__ == "__main__":
     main()

@@ -1,6 +1,6 @@
 # FileOrganizerLLM
 
-FileOrganizerLLM analyzes a folder tree and summarizes each directory using a local large language model. The script scans files, extracts a text snippet, and calls `ollama` to produce concise descriptions. The resulting summaries are stored in `folder_contexts.json`.
+FileOrganizerLLM analyzes a folder tree and summarizes each directory using a local large language model. The tool scans files, extracts a text snippet, and calls `ollama` to produce concise descriptions. The resulting summaries are stored in `folder_contexts.json`.
 
 ## Requirements
 
@@ -16,10 +16,10 @@ pip install -r requirements.txt
 
 ## Usage
 
-1. Run the script and specify the root directory and other options via command line or the `FO_ROOT_DIR`, `FO_N_SAMPLE_FILES`, and `FO_OLLAMA_MODEL` environment variables. For example:
+1. Run the tool and specify the root directory and other options via command line or the `FO_ROOT_DIR`, `FO_N_SAMPLE_FILES`, and `FO_OLLAMA_MODEL` environment variables. For example:
 
 ```bash
-python FileOrganizer.py --root /path/to/root --samples 10 --model llama3
+python -m file_organizer --root /path/to/root --samples 10 --model llama3 --verbose
 ```
 
 A `folder_contexts.json` file will be created in the root directory containing the generated summaries.
