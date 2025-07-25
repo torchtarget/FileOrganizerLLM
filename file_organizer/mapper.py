@@ -63,15 +63,22 @@ def cosine_similarity(v1: list[float], v2: list[float]) -> float:
     return dot / (norm1 * norm2)
 
 
-def load_folder_data(root: str) -> tuple[Dict[str, list], Dict[str, str]]:
-    """Load folder vectors and contexts from the organizer output."""
-    vectors_path = os.path.join(root, "folder_vectors.json")
-    contexts_path = os.path.join(root, "folder_contexts.json")
-    with open(vectors_path, "r", encoding="utf-8") as f:
-        vectors: Dict[str, list] = json.load(f)
-    with open(contexts_path, "r", encoding="utf-8") as f:
-        contexts: Dict[str, str] = json.load(f)
-    return vectors, contexts
+def load_folder_data(roots: List[str]) -> tuple[Dict[str, list], Dict[str, str]]:
+    """Load and merge vectors and contexts from one or more organizer outputs."""
+
+    merged_vectors: Dict[str, list] = {}
+    merged_contexts: Dict[str, str] = {}
+    for root in roots:
+        vectors_path = os.path.join(root, "folder_vectors.json")
+        contexts_path = os.path.join(root, "folder_contexts.json")
+        with open(vectors_path, "r", encoding="utf-8") as f:
+            vectors: Dict[str, list] = json.load(f)
+        with open(contexts_path, "r", encoding="utf-8") as f:
+            contexts: Dict[str, str] = json.load(f)
+        merged_vectors.update(vectors)
+        merged_contexts.update(contexts)
+
+    return merged_vectors, merged_contexts
 
 
 def suggest_folder_for_file(
@@ -139,8 +146,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--input", required=True, help="Folder with files to map")
     parser.add_argument(
         "--root",
+        action="append",
         required=True,
-        help="Root folder that contains folder_vectors.json and folder_contexts.json",
+        help=(
+            "Root folder containing folder_vectors.json and folder_contexts.json. "
+            "Use multiple --root options to combine several organized trees."
+        ),
     )
     parser.add_argument(
         "--apply", action="store_true", help="Move files based on generated mapping"
