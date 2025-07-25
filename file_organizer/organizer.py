@@ -9,6 +9,16 @@ import openpyxl
 from pptx import Presentation
 import PyPDF2
 import logging
+from typing import Dict
+
+from sentence_transformers import SentenceTransformer
+
+# Preload the embedding model once for efficiency
+_EMBED_MODEL = SentenceTransformer("all-MiniLM-L6-v2")
+
+def get_embedding(text: str) -> list[float]:
+    """Return an embedding vector for the given text."""
+    return _EMBED_MODEL.encode(text).tolist()
 
 from .llm_provider import get_llm
 
@@ -211,11 +221,18 @@ def main():
     process_order = get_folders_in_bottom_up_order(tree, args.root)
 
     out_json = os.path.join(args.root, "folder_contexts.json")
+    out_vectors = os.path.join(args.root, "folder_vectors.json")
     if args.resume and os.path.exists(out_json):
         with open(out_json, "r", encoding="utf-8") as f:
             folder_contexts = json.load(f)
     else:
         folder_contexts = {}
+
+    if args.resume and os.path.exists(out_vectors):
+        with open(out_vectors, "r", encoding="utf-8") as f:
+            folder_vectors: Dict[str, list] = json.load(f)
+    else:
+        folder_vectors = {}
 
     for folder in process_order:
         if folder in folder_contexts:
@@ -235,6 +252,15 @@ def main():
             )
         for fname, summary in zip(files_to_process, summaries):
             sample_summaries.append(f"File: {fname}\nSummary: {summary}")
+
+        # --- Build embedding text from sample file contents
+        embed_parts = [f"Path: {folder_display}"]
+        for fname in sample_files:
+            snippet = extract_text_file(os.path.join(folder, fname))
+            if snippet:
+                embed_parts.append(snippet)
+        embed_text = "\n".join(embed_parts)
+        folder_vectors[folder] = get_embedding(embed_text)
 
         # --- Child context summaries
         child_contexts = []
@@ -268,12 +294,15 @@ output the summary text.
         logging.info("  => %s", folder_summary)
 
         folder_contexts[folder] = folder_summary
-
         with open(out_json, "w", encoding="utf-8") as f:
             json.dump(folder_contexts, f, ensure_ascii=False, indent=2)
-        logging.info("Saved summary for %s", folder)
+
+        with open(out_vectors, "w", encoding="utf-8") as f:
+            json.dump(folder_vectors, f, ensure_ascii=False)
+        logging.info("Saved summary and vector for %s", folder)
 
     logging.info("\nSaved folder contexts to %s", out_json)
+    logging.info("Saved folder vectors to %s", out_vectors)
 #Adding a comment 
 if __name__ == "__main__":
     main()
