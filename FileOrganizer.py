@@ -1,16 +1,32 @@
 import os
 import json
 import subprocess
-from collections import defaultdict, Counter
+from collections import defaultdict
+import argparse
+from concurrent.futures import ThreadPoolExecutor
 from docx import Document
 import openpyxl
 from pptx import Presentation
 import PyPDF2
 
 # ------ CONFIG ------
-ROOT_DIR = "/path/to/your/root/folder"   # <--- Change this!
-N_SAMPLE_FILES = 10
-OLLAMA_MODEL = "llama3"                  # or another local model name
+# Configuration can be supplied via command line or environment variables.
+# Environment variable fallbacks: FO_ROOT_DIR, FO_N_SAMPLE_FILES, FO_OLLAMA_MODEL
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Summarize folders using a local LLM")
+    parser.add_argument("--root", required=False,
+                        default=os.environ.get("FO_ROOT_DIR"),
+                        help="Root directory to analyze")
+    parser.add_argument("--samples", type=int,
+                        default=int(os.environ.get("FO_N_SAMPLE_FILES", 10)),
+                        help="Number of sample files per folder")
+    parser.add_argument("--model",
+                        default=os.environ.get("FO_OLLAMA_MODEL", "llama3"),
+                        help="Ollama model name")
+    parser.add_argument("--resume", action="store_true",
+                        help="Resume from existing folder_contexts.json")
+    return parser.parse_args()
 
 # --- File Extractors ---
 
@@ -79,26 +95,49 @@ def extract_text_file(path, n_chars=2000):
     else:
         return ""
 
-def get_sample_files(folder, n=N_SAMPLE_FILES):
-    files = [f for f in os.listdir(folder) if os.path.isfile(os.path.join(folder, f))]
+def get_sample_files(folder, n):
+    files = [f for f in os.listdir(folder)
+             if os.path.isfile(os.path.join(folder, f))]
     if not files:
         return []
-    exts = [os.path.splitext(f)[1] for f in files]
-    most_common_ext = Counter(exts).most_common(1)[0][0] if exts else ""
-    rep_files = [f for f in files if os.path.splitext(f)[1] == most_common_ext]
-    if len(rep_files) < n:
-        rep_files = files
-    return rep_files[:n]
 
-def call_ollama(prompt, model=OLLAMA_MODEL):
-    proc = subprocess.run(
-        ["ollama", "run", model],
-        input=prompt.encode("utf-8"),
-        stdout=subprocess.PIPE
-    )
-    return proc.stdout.decode("utf-8").strip()
+    # Prefer recently modified files and distribute across extensions
+    files.sort(key=lambda f: os.path.getmtime(os.path.join(folder, f)),
+               reverse=True)
+    by_ext = defaultdict(list)
+    for f in files:
+        by_ext[os.path.splitext(f)[1]].append(f)
 
-def get_file_summary(filepath, ollama_model=OLLAMA_MODEL):
+    selected = []
+    while len(selected) < n and by_ext:
+        for ext in list(by_ext.keys()):
+            if by_ext[ext]:
+                selected.append(by_ext[ext].pop(0))
+                if len(selected) >= n:
+                    break
+            if not by_ext[ext]:
+                del by_ext[ext]
+    return selected[:n]
+
+def call_ollama(prompt, model, retries=1):
+    for attempt in range(retries + 1):
+        try:
+            proc = subprocess.run(
+                ["ollama", "run", model],
+                input=prompt.encode("utf-8"),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=True,
+            )
+            return proc.stdout.decode("utf-8").strip()
+        except subprocess.CalledProcessError as e:
+            if attempt >= retries:
+                err = e.stderr.decode("utf-8", errors="replace")
+                print(f"[ollama error] {err}")
+                return ""
+            print("Ollama failed, retrying...")
+
+def get_file_summary(filepath, ollama_model):
     content = extract_text_file(filepath)
     if not content:
         return "No extractable text."
@@ -136,19 +175,35 @@ def get_folders_in_bottom_up_order(tree, root_dir):
     return order
 
 def main():
-    # Build folder hierarchy
-    tree, all_folders = build_folder_tree(ROOT_DIR)
-    process_order = get_folders_in_bottom_up_order(tree, ROOT_DIR)
+    args = parse_args()
+    if not args.root:
+        raise SystemExit("--root must be specified (or FO_ROOT_DIR env variable)")
 
-    folder_contexts = {}
+    # Build folder hierarchy
+    tree, _ = build_folder_tree(args.root)
+    process_order = get_folders_in_bottom_up_order(tree, args.root)
+
+    out_json = os.path.join(args.root, "folder_contexts.json")
+    if args.resume and os.path.exists(out_json):
+        with open(out_json, "r", encoding="utf-8") as f:
+            folder_contexts = json.load(f)
+    else:
+        folder_contexts = {}
+
     for folder in process_order:
+        if folder in folder_contexts:
+            print(f"Skipping: {folder}")
+            continue
+
         print(f"\nProcessing: {folder}")
         # --- File-based summaries
-        sample_files = get_sample_files(folder)
+        sample_files = get_sample_files(folder, args.samples)
         sample_summaries = []
-        for fname in sample_files[:3]:  # For prompt size, use up to 3 samples
-            full_path = os.path.join(folder, fname)
-            summary = get_file_summary(full_path)
+
+        files_to_process = sample_files[:3]
+        with ThreadPoolExecutor() as ex:
+            summaries = list(ex.map(lambda f: get_file_summary(os.path.join(folder, f), args.model), files_to_process))
+        for fname, summary in zip(files_to_process, summaries):
             sample_summaries.append(f"File: {fname}\nSummary: {summary}")
 
         # --- Child context summaries
@@ -162,22 +217,22 @@ def main():
 You are an expert at understanding folder content and organization. Your task is to summarize the *main topic* of the folder below, ignoring any files that don't fit the main theme.
 
 Folder name: '{os.path.basename(folder)}'
-Example file summaries (auto-generated): 
+Example file summaries (auto-generated):
 {chr(10).join(sample_summaries)}
 Subfolder context summaries:
 {chr(10).join(child_contexts)}
 
 Please summarize the main purpose or topic of this folder in 2-3 sentences, taking into account both its own files and the main themes of its immediate subfolders (if any). If you see outliers, ignore them. Only output the summary text.
 """
-        print(f"  Calling Ollama ({OLLAMA_MODEL})...")
-        folder_summary = call_ollama(prompt)
+        print(f"  Calling Ollama ({args.model})...")
+        folder_summary = call_ollama(prompt, model=args.model)
         print(f"  => {folder_summary}")
 
         folder_contexts[folder] = folder_summary
 
-    out_json = os.path.join(ROOT_DIR, "folder_contexts.json")
-    with open(out_json, "w", encoding="utf-8") as f:
-        json.dump(folder_contexts, f, ensure_ascii=False, indent=2)
+        with open(out_json, "w", encoding="utf-8") as f:
+            json.dump(folder_contexts, f, ensure_ascii=False, indent=2)
+
     print(f"\nSaved folder contexts to {out_json}")
 
 if __name__ == "__main__":
