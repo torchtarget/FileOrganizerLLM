@@ -115,13 +115,16 @@ def map_files(
     *,
     top_n: int = 3,
     min_similarity: float = 0.0,
+    existing_mapping: Dict[str, str] | None = None,
 ) -> Dict[str, str]:
     """Map each file in ``source`` recursively to a destination folder."""
 
-    mapping: Dict[str, str] = {}
+    mapping: Dict[str, str] = dict(existing_mapping or {})
     for root, _, files in os.walk(source):
         for name in files:
             path = os.path.join(root, name)
+            if path in mapping:
+                continue
             dest = suggest_folder_for_file(
                 path,
                 folder_vectors,
@@ -198,6 +201,11 @@ def main() -> None:
         openai_api_key=args.openai_api_key,
         fireworks_api_key=args.fireworks_api_key,
     )
+    mapping_file = os.path.join(args.input, "file_mappings.json")
+    existing_mapping: Dict[str, str] = {}
+    if os.path.exists(mapping_file):
+        with open(mapping_file, "r", encoding="utf-8") as f:
+            existing_mapping = json.load(f)
     mapping = map_files(
         args.input,
         folder_vectors,
@@ -205,8 +213,8 @@ def main() -> None:
         llm,
         top_n=args.top_n,
         min_similarity=args.min_sim,
+        existing_mapping=existing_mapping,
     )
-    mapping_file = os.path.join(args.input, "file_mappings.json")
     with open(mapping_file, "w", encoding="utf-8") as f:
         json.dump(mapping, f, indent=2, ensure_ascii=False)
     if args.apply:
