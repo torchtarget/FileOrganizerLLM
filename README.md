@@ -4,6 +4,8 @@ FileOrganizerLLM analyzes a folder tree and summarizes each directory using a la
 
 Each folder also receives an embedding vector derived from its full file contents and path. These vectors are saved in `folder_vectors.json` for later use with vector search tools.
 
+The amodule was exclusively made vibing with ChatGPT codex (a fun Friday evening) . 
+
 
 ## Requirements
 
