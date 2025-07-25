@@ -110,20 +110,23 @@ def extract_text_pptx(path, n_chars: Optional[int] = None):
     except Exception:
         return ""
 
+# Mapping of file extensions to their extraction functions
+EXTRACTORS = {
+    ".txt": extract_text_txt,
+    ".md": extract_text_txt,
+    ".csv": extract_text_txt,
+    ".docx": extract_text_docx,
+    ".pdf": extract_text_pdf,
+    ".xlsx": extract_text_xlsx,
+    ".xls": extract_text_xlsx,
+    ".pptx": extract_text_pptx,
+    ".ppt": extract_text_pptx,
+}
+
 def extract_text_file(path, n_chars: Optional[int] = None):
     ext = os.path.splitext(path)[1].lower()
-    if ext in [".txt", ".md", ".csv"]:
-        return extract_text_txt(path, n_chars)
-    elif ext == ".docx":
-        return extract_text_docx(path, n_chars)
-    elif ext == ".pdf":
-        return extract_text_pdf(path, n_chars)
-    elif ext in [".xlsx", ".xls"]:
-        return extract_text_xlsx(path, n_chars)
-    elif ext in [".pptx", ".ppt"]:
-        return extract_text_pptx(path, n_chars)
-    else:
-        return ""
+    extractor = EXTRACTORS.get(ext)
+    return extractor(path, n_chars) if extractor else ""
 
 def get_sample_files(folder, n):
     files = [f for f in os.listdir(folder)
