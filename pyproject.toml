@@ -17,6 +17,7 @@ dependencies = [
     "PyPDF2",
     "langchain",
     "langchain-community",
+    "langchain-huggingface",
     "langchain-ollama",
     "openai",
     "sentence-transformers",
