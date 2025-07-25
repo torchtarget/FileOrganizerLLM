@@ -13,13 +13,15 @@ mock_embeddings.HuggingFaceEmbeddings = MagicMock(return_value=mock_embed_instan
 sys.modules['langchain_community.embeddings'] = mock_embeddings
 
 organizer = importlib.import_module('file_organizer.organizer')
+organizer.get_llm = MagicMock(return_value=MagicMock())
 
 
 def test_get_display_path(tmp_path):
     root = tmp_path / "root"
     sub = root / "sub" / "child"
     sub.mkdir(parents=True)
-    path = organizer.get_display_path(str(sub), str(root))
+    org = organizer.FolderOrganizer(str(root))
+    path = org.get_display_path(str(sub))
     assert path == os.path.join(root.name, "sub", "child")
 
 
@@ -27,8 +29,9 @@ def test_build_folder_tree_and_order(tmp_path):
     root = tmp_path / "root"
     (root / "a" / "b").mkdir(parents=True)
     (root / "a" / "c").mkdir(parents=True)
-    tree, _ = organizer.build_folder_tree(str(root))
-    order = organizer.get_folders_in_bottom_up_order(tree, str(root))
+    org = organizer.FolderOrganizer(str(root))
+    tree = org.build_tree()
+    order = org.order
     assert order[-1] == str(root)
     for folder in tree[str(root)]:
         assert order.index(folder) < order.index(str(root))

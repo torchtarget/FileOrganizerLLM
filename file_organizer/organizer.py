@@ -209,70 +209,108 @@ def get_display_path(folder: str, root_dir: str) -> str:
     relative = os.path.relpath(folder, root_dir)
     return os.path.join(root_name, relative)
 
-def main():
-    args = parse_args()
-    logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO,
-                        format="%(message)s")
-    llm = get_llm(args.model, args.provider, openai_api_key=args.openai_api_key)
-    if not args.root:
-        raise SystemExit("--root must be specified (or FO_ROOT_DIR env variable)")
 
-    # Build folder hierarchy
-    tree, _ = build_folder_tree(args.root)
-    process_order = get_folders_in_bottom_up_order(tree, args.root)
+class FolderOrganizer:
+    """High level organizer that manages folder summarization."""
 
-    out_json = os.path.join(args.root, "folder_contexts.json")
-    out_vectors = os.path.join(args.root, "folder_vectors.json")
-    if args.resume and os.path.exists(out_json):
-        with open(out_json, "r", encoding="utf-8") as f:
-            folder_contexts = json.load(f)
-    else:
-        folder_contexts = {}
+    def __init__(
+        self,
+        root: str,
+        *,
+        samples: int = 10,
+        model: str = "llama3",
+        provider: str = "ollama",
+        openai_api_key: Optional[str] = None,
+        verbose: bool = False,
+    ) -> None:
+        self.root = root
+        self.samples = samples
+        self.model = model
+        self.provider = provider
+        self.openai_api_key = openai_api_key
+        logging.basicConfig(
+            level=logging.DEBUG if verbose else logging.INFO, format="%(message)s"
+        )
+        self.llm = get_llm(model, provider, openai_api_key=openai_api_key)
+        self.tree: Dict[str, list] = {}
+        self.order: list[str] = []
+        self.out_json = os.path.join(self.root, "folder_contexts.json")
+        self.out_vectors = os.path.join(self.root, "folder_vectors.json")
 
-    if args.resume and os.path.exists(out_vectors):
-        with open(out_vectors, "r", encoding="utf-8") as f:
-            folder_vectors: Dict[str, list] = json.load(f)
-    else:
-        folder_vectors = {}
+    def get_display_path(self, folder: str) -> str:
+        return get_display_path(folder, self.root)
 
-    for folder in process_order:
-        if folder in folder_contexts:
-            logging.info("Skipping: %s", folder)
-            continue
+    def build_tree(self) -> Dict[str, list]:
+        self.tree, _ = build_folder_tree(self.root)
+        self.order = get_folders_in_bottom_up_order(self.tree, self.root)
+        return self.tree
 
-        logging.info("\nProcessing: %s", folder)
-        folder_display = get_display_path(folder, args.root)
-        # --- File-based summaries
-        sample_files = get_sample_files(folder, args.samples)
-        sample_summaries = []
+    def write_results(self, folder_contexts: Dict[str, str], folder_vectors: Dict[str, list]) -> None:
+        with open(self.out_json, "w", encoding="utf-8") as f:
+            json.dump(folder_contexts, f, ensure_ascii=False, indent=2)
+        with open(self.out_vectors, "w", encoding="utf-8") as f:
+            json.dump(folder_vectors, f, ensure_ascii=False)
 
-        files_to_process = sample_files[:3]
-        with ThreadPoolExecutor() as ex:
-            summaries = list(
-                ex.map(lambda f: get_file_summary(os.path.join(folder, f), llm), files_to_process)
-            )
-        for fname, summary in zip(files_to_process, summaries):
-            sample_summaries.append(f"File: {fname}\nSummary: {summary}")
+    def summarize_folders(self, *, resume: bool = False) -> None:
+        if not self.tree:
+            self.build_tree()
 
-        # --- Build embedding text from all file contents
-        embed_parts = [f"Path: {folder_display}", f"Folder: {os.path.basename(folder)}"]
-        all_files = [f for f in os.listdir(folder) if os.path.isfile(os.path.join(folder, f))]
-        for fname in all_files:
-            snippet = extract_text_file(os.path.join(folder, fname))
-            if snippet:
-                embed_parts.append(snippet)
-        embed_text = "\n".join(embed_parts)
-        folder_vectors[folder] = get_embedding(embed_text)
+        if resume and os.path.exists(self.out_json):
+            with open(self.out_json, "r", encoding="utf-8") as f:
+                folder_contexts = json.load(f)
+        else:
+            folder_contexts = {}
 
-        # --- Child context summaries
-        child_contexts = []
-        for child in tree[folder]:
-            if child in folder_contexts:
-                child_display = get_display_path(child, args.root)
-                child_contexts.append(f"Subfolder '{child_display}': {folder_contexts[child]}")
+        if resume and os.path.exists(self.out_vectors):
+            with open(self.out_vectors, "r", encoding="utf-8") as f:
+                folder_vectors: Dict[str, list] = json.load(f)
+        else:
+            folder_vectors = {}
 
-        # --- Build context prompt
-        prompt = f"""
+        for folder in self.order:
+            if folder in folder_contexts:
+                logging.info("Skipping: %s", folder)
+                continue
+
+            logging.info("\nProcessing: %s", folder)
+            folder_display = self.get_display_path(folder)
+            sample_files = get_sample_files(folder, self.samples)
+            sample_summaries = []
+
+            files_to_process = sample_files[:3]
+            with ThreadPoolExecutor() as ex:
+                summaries = list(
+                    ex.map(
+                        lambda f: get_file_summary(os.path.join(folder, f), self.llm),
+                        files_to_process,
+                    )
+                )
+            for fname, summary in zip(files_to_process, summaries):
+                sample_summaries.append(f"File: {fname}\nSummary: {summary}")
+
+            embed_parts = [
+                f"Path: {folder_display}",
+                f"Folder: {os.path.basename(folder)}",
+            ]
+            all_files = [
+                f for f in os.listdir(folder) if os.path.isfile(os.path.join(folder, f))
+            ]
+            for fname in all_files:
+                snippet = extract_text_file(os.path.join(folder, fname))
+                if snippet:
+                    embed_parts.append(snippet)
+            embed_text = "\n".join(embed_parts)
+            folder_vectors[folder] = get_embedding(embed_text)
+
+            child_contexts = []
+            for child in self.tree[folder]:
+                if child in folder_contexts:
+                    child_display = self.get_display_path(child)
+                    child_contexts.append(
+                        f"Subfolder '{child_display}': {folder_contexts[child]}"
+                    )
+
+            prompt = f"""
 You are an expert at understanding folder content and organization. The full
 folder path provides important context. Subfolders inherit the meaning of the
 entire path. For example, if the path contains  'Education' , treat every
@@ -291,19 +329,32 @@ taking into account its path-derived context, its own files, and the main themes
 of its immediate subfolders (if any). If you see outliers, ignore them. Only
 output the summary text.
 """
-        logging.info("  Calling %s (%s)...", args.provider, args.model)
-        folder_summary = call_llm(prompt, llm)
-        logging.info("  => %s", folder_summary)
+            logging.info("  Calling %s (%s)...", self.provider, self.model)
+            folder_summary = call_llm(prompt, self.llm)
+            logging.info("  => %s", folder_summary)
 
-        folder_contexts[folder] = folder_summary
-        with open(out_json, "w", encoding="utf-8") as f:
-            json.dump(folder_contexts, f, ensure_ascii=False, indent=2)
+            folder_contexts[folder] = folder_summary
+            self.write_results(folder_contexts, folder_vectors)
 
-        with open(out_vectors, "w", encoding="utf-8") as f:
-            json.dump(folder_vectors, f, ensure_ascii=False)
-        logging.info("Saved summary and vector for %s", folder)
+        logging.info("\nSaved folder contexts to %s", self.out_json)
+        logging.info("Saved folder vectors to %s", self.out_vectors)
 
-    logging.info("\nSaved folder contexts to %s", out_json)
-    logging.info("Saved folder vectors to %s", out_vectors)
+
+def main():
+    args = parse_args()
+    if not args.root:
+        raise SystemExit("--root must be specified (or FO_ROOT_DIR env variable)")
+
+    organizer = FolderOrganizer(
+        root=args.root,
+        samples=args.samples,
+        model=args.model,
+        provider=args.provider,
+        openai_api_key=args.openai_api_key,
+        verbose=args.verbose,
+    )
+
+    organizer.build_tree()
+    organizer.summarize_folders(resume=args.resume)
 if __name__ == "__main__":
     main()
