@@ -232,15 +232,23 @@ def main():
 
         # --- Build context prompt
         prompt = f"""
-You are an expert at understanding folder content and organization. Your task is to summarize the *main topic* of the folder below, ignoring any files that don't fit the main theme.
+You are an expert at understanding folder content and organization. The full
+folder path provides important context. Subfolders inherit the meaning of the
+entire path. For example, if the path is '/0. Education/Insead', treat every
+subfolder as being about education that took place at Insead. Your task is to
+summarize the *main topic* of the folder below, ignoring any files that don't fit
+the main theme.
 
-Folder path: '{folder_display}'
+Full folder path from the root: '{folder_display}'
 Example file summaries (auto-generated):
 {chr(10).join(sample_summaries)}
 Subfolder context summaries:
 {chr(10).join(child_contexts)}
 
-Please summarize the main purpose or topic of this folder in 2-3 sentences, taking into account both its own files and the main themes of its immediate subfolders (if any). If you see outliers, ignore them. Only output the summary text.
+Please summarize the main purpose or topic of this folder in 2-3 sentences,
+taking into account its path-derived context, its own files, and the main themes
+of its immediate subfolders (if any). If you see outliers, ignore them. Only
+output the summary text.
 """
         logging.info("  Calling Ollama (%s)...", args.model)
         folder_summary = call_ollama(prompt, model=args.model)

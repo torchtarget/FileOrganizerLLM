@@ -29,6 +29,11 @@ A `folder_contexts.json` file will be created in the root directory containing t
 
 The script selects a few representative files from each folder, extracts up to 2000 characters of text from each, and asks the local LLM for a one-sentence summary. It processes folders from the bottom up so that subfolder summaries contribute to the description of their parent directories. The final output provides a short overview of each folder's main topic or purpose.
 
+Folder path names also guide the summaries. The model interprets the entire path
+from the root as context that applies to all nested folders. For example, a path
+like `0. Education/Insead` means every subfolder relates to education that took
+place at Insead.
+
 ## License
 
 This project is licensed under the Apache 2.0 license. See the LICENSE file for details.
