@@ -177,6 +177,17 @@ def get_folders_in_bottom_up_order(tree, root_dir):
     visit(root_dir)
     return order
 
+
+def get_display_path(folder: str, root_dir: str) -> str:
+    """Return folder path including root folder name for context."""
+    folder = os.path.abspath(folder)
+    root_dir = os.path.abspath(root_dir)
+    root_name = os.path.basename(root_dir)
+    if folder == root_dir:
+        return root_name
+    relative = os.path.relpath(folder, root_dir)
+    return os.path.join(root_name, relative)
+
 def main():
     args = parse_args()
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO,
@@ -201,6 +212,7 @@ def main():
             continue
 
         logging.info("\nProcessing: %s", folder)
+        folder_display = get_display_path(folder, args.root)
         # --- File-based summaries
         sample_files = get_sample_files(folder, args.samples)
         sample_summaries = []
@@ -215,13 +227,14 @@ def main():
         child_contexts = []
         for child in tree[folder]:
             if child in folder_contexts:
-                child_contexts.append(f"Subfolder '{os.path.basename(child)}': {folder_contexts[child]}")
+                child_display = get_display_path(child, args.root)
+                child_contexts.append(f"Subfolder '{child_display}': {folder_contexts[child]}")
 
         # --- Build context prompt
         prompt = f"""
 You are an expert at understanding folder content and organization. Your task is to summarize the *main topic* of the folder below, ignoring any files that don't fit the main theme.
 
-Folder name: '{os.path.basename(folder)}'
+Folder path: '{folder_display}'
 Example file summaries (auto-generated):
 {chr(10).join(sample_summaries)}
 Subfolder context summaries:
