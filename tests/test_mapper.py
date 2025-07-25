@@ -34,3 +34,16 @@ def test_suggest_folder_for_file(tmp_path):
         str(file), vectors, contexts, llm, top_n=2
     )
     assert dest == str(tmp_path / "a")
+
+
+def test_suggest_folder_for_file_min_similarity(tmp_path):
+    file = tmp_path / "f.txt"
+    file.write_text("data")
+    vectors = {str(tmp_path / "a"): [0.0]}
+    contexts = {str(tmp_path / "a"): "A"}
+    llm = MagicMock()
+    llm.invoke.return_value = MagicMock(content="1")
+    dest = mapper.suggest_folder_for_file(
+        str(file), vectors, contexts, llm, top_n=1, min_similarity=0.5
+    )
+    assert dest == ""

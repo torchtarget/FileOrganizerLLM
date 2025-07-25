@@ -57,7 +57,8 @@ candidate folders using vector similarity and then asks the LLM to choose the
 best match based on the stored folder summaries. Use `--apply` to automatically
 move the files based on that mapping. Adjust the number of candidates with
 `--top-n` and specify the model and provider just like when generating the
-folder summaries.
+folder summaries. If none of the vector matches exceed a chosen similarity
+threshold, the file will remain unmapped. Control this with `--min-sim`.
 
 ## How it works
 

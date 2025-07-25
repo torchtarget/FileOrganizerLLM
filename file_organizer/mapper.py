@@ -81,6 +81,7 @@ def suggest_folder_for_file(
     llm,
     *,
     top_n: int = 3,
+    min_similarity: float = 0.0,
 ) -> str:
     """Return the folder that best fits the file content."""
 
@@ -92,6 +93,9 @@ def suggest_folder_for_file(
         for folder, vec in folder_vectors.items()
     ]
     scored.sort(key=lambda x: x[1], reverse=True)
+    if not scored or scored[0][1] < min_similarity:
+        return ""
+
     candidates = [f for f, _ in scored[:top_n]]
     return choose_best_folder_via_llm(text, candidates, folder_contexts, llm)
 
@@ -103,6 +107,7 @@ def map_files(
     llm,
     *,
     top_n: int = 3,
+    min_similarity: float = 0.0,
 ) -> Dict[str, str]:
     """Map each file in ``source`` recursively to a destination folder."""
 
@@ -111,7 +116,12 @@ def map_files(
         for name in files:
             path = os.path.join(root, name)
             dest = suggest_folder_for_file(
-                path, folder_vectors, folder_contexts, llm, top_n=top_n
+                path,
+                folder_vectors,
+                folder_contexts,
+                llm,
+                top_n=top_n,
+                min_similarity=min_similarity,
             )
             mapping[path] = dest
     return mapping
@@ -136,6 +146,12 @@ def parse_args() -> argparse.Namespace:
         "--apply", action="store_true", help="Move files based on generated mapping"
     )
     parser.add_argument("--top-n", type=int, default=3, help="Number of top vector matches to consider")
+    parser.add_argument(
+        "--min-sim",
+        type=float,
+        default=0.0,
+        help="Minimum cosine similarity required to assign a folder",
+    )
     parser.add_argument(
         "--model",
         default=os.environ.get("FO_OLLAMA_MODEL", "llama3"),
@@ -177,6 +193,7 @@ def main() -> None:
         folder_contexts,
         llm,
         top_n=args.top_n,
+        min_similarity=args.min_sim,
     )
     mapping_file = os.path.join(args.input, "file_mappings.json")
     with open(mapping_file, "w", encoding="utf-8") as f:
