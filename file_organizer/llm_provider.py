@@ -54,7 +54,6 @@ def get_llm(
             kwargs["api_key"] = fireworks_api_key
         return ChatFireworks(
             model=model_name,
-            base_url="https://api.fireworks.ai/inference/v1/completions",
             **kwargs,
         )
     raise ValueError(f"Unknown provider: {provider}")
