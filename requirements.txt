@@ -6,5 +6,6 @@ langchain
 langchain-community
 langchain-huggingface
 langchain-ollama
+langchain-huggingface
 openai
 sentence-transformers
