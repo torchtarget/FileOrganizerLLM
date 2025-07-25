@@ -2,3 +2,9 @@ python-docx
 openpyxl
 python-pptx
 PyPDF2
+langchain
+langchain-community
+langchain-ollama
+langchain-huggingface
+openai
+sentence-transformers
