@@ -6,12 +6,13 @@ FileOrganizerLLM analyzes a folder tree and summarizes each directory using a lo
 
 - Python 3.8 or later
 - [Ollama](https://github.com/jmorganca/ollama) installed locally and available on the command line
-- Python packages listed in `requirements.txt`
+
+- Python packages specified in `pyproject.toml`
 
 Install the Python dependencies with:
 
 ```bash
-pip install -r requirements.txt
+pip install .
 ```
 
 ## Usage
