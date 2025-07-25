@@ -16,8 +16,7 @@ Each folder also receives an embedding vector derived from its full file content
 
 Install the Python dependencies with:
 
-`
-``bash
+```bash
 pip install .
 ```
 
@@ -48,10 +47,17 @@ A `folder_contexts.json` file will be created in the root directory containing t
 To map files from another folder to the most relevant destination within an existing organized tree, run:
 
 ```bash
-python -m file_organizer.mapper --input /path/to/new/files --root /path/to/root
+python -m file_organizer.mapper --input /path/to/new/files --root /path/to/root \
+    --provider openai --model gpt-3.5-turbo --openai-api-key YOUR_KEY
 ```
 
-The command creates a `file_mappings.json` file inside the input folder listing the suggested destination for each file. Use `--apply` to automatically move the files based on that mapping.
+The command creates a `file_mappings.json` file inside the input folder listing
+the suggested destination for each file. The mapper first selects the top few
+candidate folders using vector similarity and then asks the LLM to choose the
+best match based on the stored folder summaries. Use `--apply` to automatically
+move the files based on that mapping. Adjust the number of candidates with
+`--top-n` and specify the model and provider just like when generating the
+folder summaries.
 
 ## How it works
 
