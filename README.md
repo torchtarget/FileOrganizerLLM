@@ -1,7 +1,9 @@
 # FileOrganizerLLM
 
 FileOrganizerLLM analyzes a folder tree and summarizes each directory using a large language model. The tool scans files, extracts a text snippet, and uses a selectable provider (Ollama or OpenAI) to produce concise descriptions. The resulting summaries are stored in `folder_contexts.json`.
+
 Each folder also receives an embedding vector derived from its full file contents and path. These vectors are saved in `folder_vectors.json` for later use with vector search tools.
+
 
 ## Requirements
 
@@ -12,7 +14,8 @@ Each folder also receives an embedding vector derived from its full file content
 
 Install the Python dependencies with:
 
-```bash
+`
+``bash
 pip install .
 ```
 

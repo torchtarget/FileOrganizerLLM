@@ -20,6 +20,7 @@ def get_embedding(text: str) -> list[float]:
     """Return an embedding vector for the given text."""
     return _EMBED_MODEL.embed_query(text)
 
+
 from .llm_provider import get_llm
 
 # ------ CONFIG ------
