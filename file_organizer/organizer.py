@@ -9,16 +9,17 @@ import openpyxl
 from pptx import Presentation
 import PyPDF2
 import logging
-from typing import Dict
+from typing import Dict, Optional
 
-from sentence_transformers import SentenceTransformer
+from langchain_community.embeddings import HuggingFaceEmbeddings
 
-# Preload the embedding model once for efficiency
-_EMBED_MODEL = SentenceTransformer("all-MiniLM-L6-v2")
+# Preload the embedding model once for efficiency using LangChain
+_EMBED_MODEL = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
 
 def get_embedding(text: str) -> list[float]:
     """Return an embedding vector for the given text."""
-    return _EMBED_MODEL.encode(text).tolist()
+    return _EMBED_MODEL.embed_query(text)
+
 
 from .llm_provider import get_llm
 
@@ -59,57 +60,57 @@ def parse_args():
 
 # --- File Extractors ---
 
-def extract_text_txt(path, n_chars=2000):
+def extract_text_txt(path, n_chars: Optional[int] = None):
     try:
         with open(path, "r", encoding="utf-8", errors="replace") as f:
-            return f.read(n_chars)
+            text = f.read()
+            return text if n_chars is None else text[:n_chars]
     except Exception:
         return ""
 
-def extract_text_docx(path, n_chars=2000):
+def extract_text_docx(path, n_chars: Optional[int] = None):
     try:
         doc = Document(path)
         text = "\n".join([p.text for p in doc.paragraphs])
-        return text[:n_chars]
+        return text if n_chars is None else text[:n_chars]
     except Exception:
         return ""
 
-def extract_text_pdf(path, n_chars=2000):
+def extract_text_pdf(path, n_chars: Optional[int] = None):
     try:
         reader = PyPDF2.PdfReader(path)
         text = ""
-        for page in reader.pages[:5]:
+        for page in reader.pages:
             text += page.extract_text() or ""
-        return text[:n_chars]
+        return text if n_chars is None else text[:n_chars]
     except Exception:
         return ""
 
-def extract_text_xlsx(path, n_chars=2000):
+def extract_text_xlsx(path, n_chars: Optional[int] = None):
     try:
         wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
         text = ""
-        for ws in wb.worksheets[:2]:
-            for row in ws.iter_rows(min_row=1, max_row=15, values_only=True):
+        for ws in wb.worksheets:
+            for row in ws.iter_rows(values_only=True):
                 rowtext = "\t".join([str(cell) if cell is not None else "" for cell in row])
                 text += rowtext + "\n"
-        return text[:n_chars]
+        return text if n_chars is None else text[:n_chars]
     except Exception:
         return ""
 
-def extract_text_pptx(path, n_chars=2000):
+def extract_text_pptx(path, n_chars: Optional[int] = None):
     try:
         prs = Presentation(path)
         text = ""
-        for i, slide in enumerate(prs.slides):
-            if i > 5: break
+        for slide in prs.slides:
             for shape in slide.shapes:
                 if hasattr(shape, "text"):
                     text += shape.text + "\n"
-        return text[:n_chars]
+        return text if n_chars is None else text[:n_chars]
     except Exception:
         return ""
 
-def extract_text_file(path, n_chars=2000):
+def extract_text_file(path, n_chars: Optional[int] = None):
     ext = os.path.splitext(path)[1].lower()
     if ext in [".txt", ".md", ".csv"]:
         return extract_text_txt(path, n_chars)
@@ -161,7 +162,7 @@ def call_llm(prompt, llm, retries=1):
 
 
 def get_file_summary(filepath, llm):
-    content = extract_text_file(filepath)
+    content = extract_text_file(filepath, n_chars=2000)
     if not content:
         return "No extractable text."
     prompt = f"Summarize this file in one sentence for a folder classification system:\n{content}"
@@ -253,9 +254,10 @@ def main():
         for fname, summary in zip(files_to_process, summaries):
             sample_summaries.append(f"File: {fname}\nSummary: {summary}")
 
-        # --- Build embedding text from sample file contents
-        embed_parts = [f"Path: {folder_display}"]
-        for fname in sample_files:
+        # --- Build embedding text from all file contents
+        embed_parts = [f"Path: {folder_display}", f"Folder: {os.path.basename(folder)}"]
+        all_files = [f for f in os.listdir(folder) if os.path.isfile(os.path.join(folder, f))]
+        for fname in all_files:
             snippet = extract_text_file(os.path.join(folder, fname))
             if snippet:
                 embed_parts.append(snippet)
@@ -303,6 +305,5 @@ output the summary text.
 
     logging.info("\nSaved folder contexts to %s", out_json)
     logging.info("Saved folder vectors to %s", out_vectors)
-#Adding a comment 
 if __name__ == "__main__":
     main()
