@@ -261,6 +261,6 @@ output the summary text.
         logging.info("Saved summary for %s", folder)
 
     logging.info("\nSaved folder contexts to %s", out_json)
-
+#Adding a comment 
 if __name__ == "__main__":
     main()
