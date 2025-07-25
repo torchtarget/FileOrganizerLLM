@@ -42,7 +42,7 @@ def parse_args():
     )
     parser.add_argument(
         "--provider",
-        choices=["ollama", "openai"],
+        choices=["ollama", "openai", "fireworks"],
         default=os.environ.get("FO_PROVIDER", "ollama"),
         help="LLM provider to use",
     )
@@ -51,6 +51,12 @@ def parse_args():
         dest="openai_api_key",
         default=os.environ.get("OPENAI_API_KEY"),
         help="API key for OpenAI provider",
+    )
+    parser.add_argument(
+        "--fireworks-api-key",
+        dest="fireworks_api_key",
+        default=os.environ.get("FIREWORKS_API_KEY"),
+        help="API key for Fireworks provider",
     )
     parser.add_argument("--resume", action="store_true",
                         help="Resume from existing folder_contexts.json")
@@ -224,6 +230,7 @@ class FolderOrganizer:
         model: str = "llama3",
         provider: str = "ollama",
         openai_api_key: Optional[str] = None,
+        fireworks_api_key: Optional[str] = None,
         verbose: bool = False,
     ) -> None:
         self.root = root
@@ -231,10 +238,16 @@ class FolderOrganizer:
         self.model = model
         self.provider = provider
         self.openai_api_key = openai_api_key
+        self.fireworks_api_key = fireworks_api_key
         logging.basicConfig(
             level=logging.DEBUG if verbose else logging.INFO, format="%(message)s"
         )
-        self.llm = get_llm(model, provider, openai_api_key=openai_api_key)
+        self.llm = get_llm(
+            model,
+            provider,
+            openai_api_key=openai_api_key,
+            fireworks_api_key=fireworks_api_key,
+        )
         self.tree: Dict[str, list] = {}
         self.order: list[str] = []
         self.out_json = os.path.join(self.root, "folder_contexts.json")
@@ -354,6 +367,7 @@ def main():
         model=args.model,
         provider=args.provider,
         openai_api_key=args.openai_api_key,
+        fireworks_api_key=args.fireworks_api_key,
         verbose=args.verbose,
     )
 
