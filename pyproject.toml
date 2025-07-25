@@ -28,3 +28,4 @@ dependencies = [
 [project.scripts]
 file-organizer = "file_organizer.organizer:main"
 file-mapper = "file_organizer.mapper:main"
+file-reorganizer = "file_organizer.reorganizer:main"

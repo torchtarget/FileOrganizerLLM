@@ -65,6 +65,18 @@ move the files based on that mapping. Adjust the number of candidates with
 folder summaries. If none of the vector matches exceed a chosen similarity
 threshold, the file will remain unmapped. Control this with `--min-sim`.
 
+### Reorganization planning
+
+Once a folder tree has `folder_contexts.json` and `folder_vectors.json`, you can
+ask the tool to suggest a better structure without moving any files:
+
+```bash
+python -m file_organizer.reorganizer --root /organized/tree
+```
+
+This creates `reorg_plan.json` with merge and move recommendations. Run again
+with `--apply` to move the files according to that plan.
+
 ## How it works
 
 The script selects a few representative files from each folder, extracts up to 2000 characters of text from each, and asks the local LLM for a one-sentence summary. It processes folders from the bottom up so that subfolder summaries contribute to the description of their parent directories. The final output provides a short overview of each folder's main topic or purpose.
