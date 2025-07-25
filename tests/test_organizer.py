@@ -10,7 +10,9 @@ mock_embed_instance = MagicMock()
 mock_embed_instance.embed_query.return_value = [0.0]
 mock_embeddings.HuggingFaceEmbeddings = MagicMock(return_value=mock_embed_instance)
 
-sys.modules['langchain_huggingface'] = mock_embeddings
+
+sys.modules['langchain_huggingface.embeddings'] = mock_embeddings
+
 
 organizer = importlib.import_module('file_organizer.organizer')
 organizer.get_llm = MagicMock(return_value=MagicMock())
