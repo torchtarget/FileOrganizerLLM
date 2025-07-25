@@ -47,9 +47,14 @@ A `folder_contexts.json` file will be created in the root directory containing t
 To map files from another folder to the most relevant destination within an existing organized tree, run:
 
 ```bash
-python -m file_organizer.mapper --input /path/to/new/files --root /path/to/root \
+python -m file_organizer.mapper --input /path/to/new/files \
+    --root /organized/tree1 --root /organized/tree2 \
     --provider openai --model gpt-3.5-turbo --openai-api-key YOUR_KEY
 ```
+
+Specify `--root` multiple times to combine several previously summarized
+directory trees. The mapper will compare new files against all provided
+folders and choose the best match.
 
 The command creates a `file_mappings.json` file inside the input folder listing
 the suggested destination for each file. The mapper first selects the top few
