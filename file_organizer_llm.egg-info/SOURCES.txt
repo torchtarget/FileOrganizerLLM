@@ -1,0 +1,12 @@
+LICENSE
+README.md
+pyproject.toml
+file_organizer/__init__.py
+file_organizer/__main__.py
+file_organizer/organizer.py
+file_organizer_llm.egg-info/PKG-INFO
+file_organizer_llm.egg-info/SOURCES.txt
+file_organizer_llm.egg-info/dependency_links.txt
+file_organizer_llm.egg-info/entry_points.txt
+file_organizer_llm.egg-info/requires.txt
+file_organizer_llm.egg-info/top_level.txt

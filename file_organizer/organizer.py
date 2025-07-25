@@ -234,8 +234,8 @@ def main():
         prompt = f"""
 You are an expert at understanding folder content and organization. The full
 folder path provides important context. Subfolders inherit the meaning of the
-entire path. For example, if the path is '/0. Education/Insead', treat every
-subfolder as being about education that took place at Insead. Your task is to
+entire path. For example, if the path contains  'Education' , treat every
+subfolder as being about education . Your task is to
 summarize the *main topic* of the folder below, ignoring any files that don't fit
 the main theme.
 
