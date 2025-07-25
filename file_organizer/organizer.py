@@ -16,6 +16,7 @@ from langchain_huggingface import HuggingFaceEmbeddings
 # Preload the embedding model once for efficiency using LangChain
 _EMBED_MODEL = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
 
+
 def get_embedding(text: str) -> list[float]:
     """Return an embedding vector for the given text."""
     return _EMBED_MODEL.embed_query(text)
@@ -27,14 +28,21 @@ from .llm_provider import get_llm
 # Configuration can be supplied via command line or environment variables.
 # Environment variable fallbacks: FO_ROOT_DIR, FO_N_SAMPLE_FILES, FO_OLLAMA_MODEL
 
+
 def parse_args():
     parser = argparse.ArgumentParser(description="Summarize folders using a local LLM")
-    parser.add_argument("--root", required=False,
-                        default=os.environ.get("FO_ROOT_DIR"),
-                        help="Root directory to analyze")
-    parser.add_argument("--samples", type=int,
-                        default=int(os.environ.get("FO_N_SAMPLE_FILES", 10)),
-                        help="Number of sample files per folder")
+    parser.add_argument(
+        "--root",
+        required=False,
+        default=os.environ.get("FO_ROOT_DIR"),
+        help="Root directory to analyze",
+    )
+    parser.add_argument(
+        "--samples",
+        type=int,
+        default=int(os.environ.get("FO_N_SAMPLE_FILES", 10)),
+        help="Number of sample files per folder",
+    )
     parser.add_argument(
         "--model",
         default=os.environ.get("FO_OLLAMA_MODEL", "llama3"),
@@ -58,13 +66,17 @@ def parse_args():
         default=os.environ.get("FIREWORKS_API_KEY"),
         help="API key for Fireworks provider",
     )
-    parser.add_argument("--resume", action="store_true",
-                        help="Resume from existing folder_contexts.json")
-    parser.add_argument("--verbose", action="store_true",
-                        help="Enable verbose output")
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="Resume from existing folder_contexts.json",
+    )
+    parser.add_argument("--verbose", action="store_true", help="Enable verbose output")
     return parser.parse_args()
 
+
 # --- File Extractors ---
+
 
 def extract_text_txt(path, n_chars: Optional[int] = None):
     try:
@@ -74,6 +86,7 @@ def extract_text_txt(path, n_chars: Optional[int] = None):
     except Exception:
         return ""
 
+
 def extract_text_docx(path, n_chars: Optional[int] = None):
     try:
         doc = Document(path)
@@ -81,6 +94,7 @@ def extract_text_docx(path, n_chars: Optional[int] = None):
         return text if n_chars is None else text[:n_chars]
     except Exception:
         return ""
+
 
 def extract_text_pdf(path, n_chars: Optional[int] = None):
     try:
@@ -92,17 +106,21 @@ def extract_text_pdf(path, n_chars: Optional[int] = None):
     except Exception:
         return ""
 
+
 def extract_text_xlsx(path, n_chars: Optional[int] = None):
     try:
         wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
         text = ""
         for ws in wb.worksheets:
             for row in ws.iter_rows(values_only=True):
-                rowtext = "\t".join([str(cell) if cell is not None else "" for cell in row])
+                rowtext = "\t".join(
+                    [str(cell) if cell is not None else "" for cell in row]
+                )
                 text += rowtext + "\n"
         return text if n_chars is None else text[:n_chars]
     except Exception:
         return ""
+
 
 def extract_text_pptx(path, n_chars: Optional[int] = None):
     try:
@@ -115,6 +133,7 @@ def extract_text_pptx(path, n_chars: Optional[int] = None):
         return text if n_chars is None else text[:n_chars]
     except Exception:
         return ""
+
 
 # Mapping of file extensions to their extraction functions
 EXTRACTORS = {
@@ -129,20 +148,20 @@ EXTRACTORS = {
     ".ppt": extract_text_pptx,
 }
 
+
 def extract_text_file(path, n_chars: Optional[int] = None):
     ext = os.path.splitext(path)[1].lower()
     extractor = EXTRACTORS.get(ext)
     return extractor(path, n_chars) if extractor else ""
 
+
 def get_sample_files(folder, n):
-    files = [f for f in os.listdir(folder)
-             if os.path.isfile(os.path.join(folder, f))]
+    files = [f for f in os.listdir(folder) if os.path.isfile(os.path.join(folder, f))]
     if not files:
         return []
 
     # Prefer recently modified files and distribute across extensions
-    files.sort(key=lambda f: os.path.getmtime(os.path.join(folder, f)),
-               reverse=True)
+    files.sort(key=lambda f: os.path.getmtime(os.path.join(folder, f)), reverse=True)
     by_ext = defaultdict(list)
     for f in files:
         by_ext[os.path.splitext(f)[1]].append(f)
@@ -178,7 +197,9 @@ def get_file_summary(filepath, llm):
     summary = call_llm(prompt, llm=llm)
     return summary.strip()
 
+
 # -- Main hierarchical logic --
+
 
 def build_folder_tree(root_dir):
     """Map each folder to its children."""
@@ -190,6 +211,7 @@ def build_folder_tree(root_dir):
             child = os.path.join(folder, d)
             tree[folder].append(child)
     return tree, all_folders
+
 
 def get_folders_in_bottom_up_order(tree, root_dir):
     """Return a list of folders, leaves first, root last."""
@@ -261,7 +283,9 @@ class FolderOrganizer:
         self.order = get_folders_in_bottom_up_order(self.tree, self.root)
         return self.tree
 
-    def write_results(self, folder_contexts: Dict[str, str], folder_vectors: Dict[str, list]) -> None:
+    def write_results(
+        self, folder_contexts: Dict[str, str], folder_vectors: Dict[str, list]
+    ) -> None:
         with open(self.out_json, "w", encoding="utf-8") as f:
             json.dump(folder_contexts, f, ensure_ascii=False, indent=2)
         with open(self.out_vectors, "w", encoding="utf-8") as f:
@@ -373,5 +397,7 @@ def main():
 
     organizer.build_tree()
     organizer.summarize_folders(resume=args.resume)
+
+
 if __name__ == "__main__":
     main()

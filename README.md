@@ -43,6 +43,16 @@ python -m file_organizer --root /path/to/root --provider fireworks --model accou
 
 A `folder_contexts.json` file will be created in the root directory containing the generated summaries.
 
+### Mapping new files
+
+To map files from another folder to the most relevant destination within an existing organized tree, run:
+
+```bash
+python -m file_organizer.mapper --input /path/to/new/files --root /path/to/root
+```
+
+The command creates a `file_mappings.json` file inside the input folder listing the suggested destination for each file. Use `--apply` to automatically move the files based on that mapping.
+
 ## How it works
 
 The script selects a few representative files from each folder, extracts up to 2000 characters of text from each, and asks the local LLM for a one-sentence summary. It processes folders from the bottom up so that subfolder summaries contribute to the description of their parent directories. The final output provides a short overview of each folder's main topic or purpose.
