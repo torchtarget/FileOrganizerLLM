@@ -10,6 +10,8 @@ from pptx import Presentation
 import PyPDF2
 import logging
 
+from .llm_provider import get_llm
+
 # ------ CONFIG ------
 # Configuration can be supplied via command line or environment variables.
 # Environment variable fallbacks: FO_ROOT_DIR, FO_N_SAMPLE_FILES, FO_OLLAMA_MODEL
@@ -22,9 +24,23 @@ def parse_args():
     parser.add_argument("--samples", type=int,
                         default=int(os.environ.get("FO_N_SAMPLE_FILES", 10)),
                         help="Number of sample files per folder")
-    parser.add_argument("--model",
-                        default=os.environ.get("FO_OLLAMA_MODEL", "llama3"),
-                        help="Ollama model name")
+    parser.add_argument(
+        "--model",
+        default=os.environ.get("FO_OLLAMA_MODEL", "llama3"),
+        help="Model name for the selected provider",
+    )
+    parser.add_argument(
+        "--provider",
+        choices=["ollama", "openai"],
+        default=os.environ.get("FO_PROVIDER", "ollama"),
+        help="LLM provider to use",
+    )
+    parser.add_argument(
+        "--openai-api-key",
+        dest="openai_api_key",
+        default=os.environ.get("OPENAI_API_KEY"),
+        help="API key for OpenAI provider",
+    )
     parser.add_argument("--resume", action="store_true",
                         help="Resume from existing folder_contexts.json")
     parser.add_argument("--verbose", action="store_true",
@@ -122,30 +138,24 @@ def get_sample_files(folder, n):
                 del by_ext[ext]
     return selected[:n]
 
-def call_ollama(prompt, model, retries=1):
+
+def call_llm(prompt, llm, retries=1):
     for attempt in range(retries + 1):
         try:
-            proc = subprocess.run(
-                ["ollama", "run", model],
-                input=prompt.encode("utf-8"),
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                check=True,
-            )
-            return proc.stdout.decode("utf-8").strip()
-        except subprocess.CalledProcessError as e:
+            return llm.invoke(prompt).content.strip()
+        except Exception as e:
             if attempt >= retries:
-                err = e.stderr.decode("utf-8", errors="replace")
-                logging.error("[ollama error] %s", err)
+                logging.error("[llm error] %s", e)
                 return ""
-            logging.warning("Ollama failed, retrying...")
+            logging.warning("LLM call failed, retrying...")
 
-def get_file_summary(filepath, ollama_model):
+
+def get_file_summary(filepath, llm):
     content = extract_text_file(filepath)
     if not content:
         return "No extractable text."
     prompt = f"Summarize this file in one sentence for a folder classification system:\n{content}"
-    summary = call_ollama(prompt, model=ollama_model)
+    summary = call_llm(prompt, llm=llm)
     return summary.strip()
 
 # -- Main hierarchical logic --
@@ -192,6 +202,7 @@ def main():
     args = parse_args()
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO,
                         format="%(message)s")
+    llm = get_llm(args.model, args.provider, openai_api_key=args.openai_api_key)
     if not args.root:
         raise SystemExit("--root must be specified (or FO_ROOT_DIR env variable)")
 
@@ -219,7 +230,9 @@ def main():
 
         files_to_process = sample_files[:3]
         with ThreadPoolExecutor() as ex:
-            summaries = list(ex.map(lambda f: get_file_summary(os.path.join(folder, f), args.model), files_to_process))
+            summaries = list(
+                ex.map(lambda f: get_file_summary(os.path.join(folder, f), llm), files_to_process)
+            )
         for fname, summary in zip(files_to_process, summaries):
             sample_summaries.append(f"File: {fname}\nSummary: {summary}")
 
@@ -250,8 +263,8 @@ taking into account its path-derived context, its own files, and the main themes
 of its immediate subfolders (if any). If you see outliers, ignore them. Only
 output the summary text.
 """
-        logging.info("  Calling Ollama (%s)...", args.model)
-        folder_summary = call_ollama(prompt, model=args.model)
+        logging.info("  Calling %s (%s)...", args.provider, args.model)
+        folder_summary = call_llm(prompt, llm)
         logging.info("  => %s", folder_summary)
 
         folder_contexts[folder] = folder_summary

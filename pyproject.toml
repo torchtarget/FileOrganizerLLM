@@ -15,6 +15,9 @@ dependencies = [
     "openpyxl",
     "python-pptx",
     "PyPDF2",
+    "langchain",
+    "langchain-community",
+    "openai",
 ]
 
 [project.scripts]
