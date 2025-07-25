@@ -11,6 +11,8 @@ Each folder also receives an embedding vector derived from its full file content
 - Either [Ollama](https://github.com/jmorganca/ollama) installed locally or an OpenAI API key
 
 - Python packages specified in `pyproject.toml`
+- Install `langchain-huggingface` and `langchain-ollama`, which replace
+  older LangChain integration modules
 
 Install the Python dependencies with:
 

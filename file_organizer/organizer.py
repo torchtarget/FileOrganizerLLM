@@ -11,7 +11,7 @@ import PyPDF2
 import logging
 from typing import Dict, Optional
 
-from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_huggingface import HuggingFaceEmbeddings
 
 # Preload the embedding model once for efficiency using LangChain
 _EMBED_MODEL = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
