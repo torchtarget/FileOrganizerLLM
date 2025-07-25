@@ -27,5 +27,10 @@ def test_suggest_folder_for_file(tmp_path):
     file = tmp_path / "f.txt"
     file.write_text("data")
     vectors = {str(tmp_path / "a"): [1.0], str(tmp_path / "b"): [0.0]}
-    dest = mapper.suggest_folder_for_file(str(file), vectors)
+    contexts = {str(tmp_path / "a"): "A", str(tmp_path / "b"): "B"}
+    llm = MagicMock()
+    llm.invoke.return_value = MagicMock(content="1")
+    dest = mapper.suggest_folder_for_file(
+        str(file), vectors, contexts, llm, top_n=2
+    )
     assert dest == str(tmp_path / "a")
