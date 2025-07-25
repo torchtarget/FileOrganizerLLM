@@ -16,11 +16,10 @@ pip install -r requirements.txt
 
 ## Usage
 
-1. Open `FileOrganizer.py` and set `ROOT_DIR` to the path you want to analyze. Optionally adjust `N_SAMPLE_FILES` and `OLLAMA_MODEL` for your model name.
-2. Run the script:
+1. Run the script and specify the root directory and other options via command line or the `FO_ROOT_DIR`, `FO_N_SAMPLE_FILES`, and `FO_OLLAMA_MODEL` environment variables. For example:
 
 ```bash
-python FileOrganizer.py
+python FileOrganizer.py --root /path/to/root --samples 10 --model llama3
 ```
 
 A `folder_contexts.json` file will be created in the root directory containing the generated summaries.
