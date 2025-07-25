@@ -47,3 +47,28 @@ def test_suggest_folder_for_file_min_similarity(tmp_path):
         str(file), vectors, contexts, llm, top_n=1, min_similarity=0.5
     )
     assert dest == ""
+
+
+def test_map_files_uses_existing_mapping(tmp_path):
+    f1 = tmp_path / "a.txt"
+    f1.write_text("data")
+    f2 = tmp_path / "b.txt"
+    f2.write_text("data")
+
+    existing = {str(f1): "/dest"}
+    mapper.suggest_folder_for_file = MagicMock(return_value="/new")
+    llm = MagicMock()
+
+    mapping = mapper.map_files(
+        str(tmp_path),
+        {},
+        {},
+        llm,
+        existing_mapping=existing,
+    )
+
+    assert mapping[str(f1)] == "/dest"
+    assert mapping[str(f2)] == "/new"
+    mapper.suggest_folder_for_file.assert_called_once_with(
+        str(f2), {}, {}, llm, top_n=3, min_similarity=0.0
+    )

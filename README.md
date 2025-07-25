@@ -64,6 +64,8 @@ move the files based on that mapping. Adjust the number of candidates with
 `--top-n` and specify the model and provider just like when generating the
 folder summaries. If none of the vector matches exceed a chosen similarity
 threshold, the file will remain unmapped. Control this with `--min-sim`.
+If a `file_mappings.json` already exists, it is loaded and reused so that
+previous suggestions are preserved and only new files are analyzed.
 
 ### Reorganization planning
 
