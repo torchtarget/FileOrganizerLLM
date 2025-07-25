@@ -3,8 +3,8 @@ from __future__ import annotations
 
 from typing import Optional
 
-from langchain.chat_models import ChatOpenAI
-from langchain_community.chat_models import ChatOllama
+from langchain_community.chat_models import ChatOpenAI
+from langchain_ollama import ChatOllama
 from langchain_core.language_models.chat_models import BaseChatModel
 
 
