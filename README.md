@@ -1,11 +1,11 @@
 # FileOrganizerLLM
 
-FileOrganizerLLM analyzes a folder tree and summarizes each directory using a local large language model. The tool scans files, extracts a text snippet, and calls `ollama` to produce concise descriptions. The resulting summaries are stored in `folder_contexts.json`.
+FileOrganizerLLM analyzes a folder tree and summarizes each directory using a large language model. The tool scans files, extracts a text snippet, and uses a selectable provider (Ollama or OpenAI) to produce concise descriptions. The resulting summaries are stored in `folder_contexts.json`.
 
 ## Requirements
 
 - Python 3.8 or later
-- [Ollama](https://github.com/jmorganca/ollama) installed locally and available on the command line
+- Either [Ollama](https://github.com/jmorganca/ollama) installed locally or an OpenAI API key
 
 - Python packages specified in `pyproject.toml`
 
@@ -17,10 +17,16 @@ pip install .
 
 ## Usage
 
-1. Run the tool and specify the root directory and other options via command line or the `FO_ROOT_DIR`, `FO_N_SAMPLE_FILES`, and `FO_OLLAMA_MODEL` environment variables. For example:
+1. Run the tool and specify the root directory and other options via command line or the `FO_ROOT_DIR`, `FO_N_SAMPLE_FILES`, and `FO_OLLAMA_MODEL` environment variables. The provider can also be set with `FO_PROVIDER` and OpenAI credentials using `OPENAI_API_KEY`. Choose a provider with `--provider` (`ollama` or `openai`). For example:
 
 ```bash
-python -m file_organizer --root /path/to/root --samples 10 --model llama3 --verbose
+python -m file_organizer --root /path/to/root --samples 10 --model llama3 --provider ollama --verbose
+```
+
+To use OpenAI:
+
+```bash
+python -m file_organizer --root /path/to/root --provider openai --model gpt-3.5-turbo --openai-api-key YOUR_KEY
 ```
 
 A `folder_contexts.json` file will be created in the root directory containing the generated summaries.
