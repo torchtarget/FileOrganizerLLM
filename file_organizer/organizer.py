@@ -14,7 +14,8 @@ from typing import Dict, Optional
 from langchain_huggingface import HuggingFaceEmbeddings
 
 # Preload the embedding model once for efficiency using LangChain
-_EMBED_MODEL = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+# Using all-mpnet-base-v2 for better document retrieval performance (768 dims vs 384)
+_EMBED_MODEL = HuggingFaceEmbeddings(model_name="all-mpnet-base-v2")
 
 
 def get_embedding(text: str) -> list[float]:
