@@ -9,7 +9,7 @@ import os
 from typing import Dict, List, Tuple
 
 from .llm_provider import get_llm
-from .mapper import cosine_similarity, map_files, apply_mapping
+from .mapper import cosine_similarity, map_files, apply_mapping, call_llm
 
 
 class Reorganizer:
@@ -46,8 +46,33 @@ class Reorganizer:
             contexts: Dict[str, str] = json.load(f)
         return vectors, contexts
 
+    def confirm_merge_with_llm(
+        self,
+        f1: str,
+        f2: str,
+        folder_contexts: Dict[str, str],
+    ) -> bool:
+        """Use the LLM to confirm that two folders should be merged."""
+
+        ctx1 = folder_contexts.get(f1, "")
+        ctx2 = folder_contexts.get(f2, "")
+        prompt = (
+            "You are assisting with reorganizing a folder tree. "
+            "Given the short summaries of two folders, determine if they "
+            "cover the same topic and should be merged.\n\n"
+            f"Folder A ({f1}): {ctx1}\n"
+            f"Folder B ({f2}): {ctx2}\n"
+            "Respond with 'yes' or 'no'."
+        )
+        response = call_llm(prompt, self.llm).lower()
+        return response.startswith("y")
+
     def suggest_merges(
-        self, folder_vectors: Dict[str, list], *, threshold: float = 0.9
+        self,
+        folder_vectors: Dict[str, list],
+        folder_contexts: Dict[str, str],
+        *,
+        threshold: float = 0.9,
     ) -> List[Tuple[str, str]]:
         folders = list(folder_vectors)
         merges: List[Tuple[str, str]] = []
@@ -55,7 +80,9 @@ class Reorganizer:
             for j in range(i + 1, len(folders)):
                 f1, f2 = folders[i], folders[j]
                 sim = cosine_similarity(folder_vectors[f1], folder_vectors[f2])
-                if sim >= threshold:
+                if sim >= threshold and self.confirm_merge_with_llm(
+                    f1, f2, folder_contexts
+                ):
                     merges.append((f1, f2))
         return merges
 
@@ -84,7 +111,7 @@ class Reorganizer:
 
     def analyze(self) -> None:
         folder_vectors, folder_contexts = self.load_data()
-        merges = self.suggest_merges(folder_vectors)
+        merges = self.suggest_merges(folder_vectors, folder_contexts)
         moves = self.suggest_moves(folder_vectors, folder_contexts)
         plan = {"merge_candidates": merges, "move_suggestions": moves}
         with open(self.plan_file, "w", encoding="utf-8") as f:
