@@ -40,3 +40,13 @@ def test_apply(tmp_path):
     reg = reorganizer.Reorganizer(str(tmp_path))
     reg.apply()
     reorganizer.apply_mapping.assert_called_once()
+
+
+def test_suggest_merges_llm_check(tmp_path):
+    reg = reorganizer.Reorganizer(str(tmp_path))
+    vectors = {"a": [1.0], "b": [1.0]}
+    contexts = {"a": "A", "b": "B"}
+    reg.confirm_merge_with_llm = MagicMock(return_value=True)
+    merges = reg.suggest_merges(vectors, contexts, threshold=0.5)
+    assert merges == [("a", "b")]
+    reg.confirm_merge_with_llm.assert_called_once_with("a", "b", contexts)
