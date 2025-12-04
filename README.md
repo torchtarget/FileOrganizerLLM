@@ -217,3 +217,26 @@ This refinement introduces:
 It’s now a production-friendly and stable semantic-indexing architecture that remains elegant and extensible.
 ________________________________________
 
+## Running the prototype
+
+1. Install dependencies and the editable package (Python 3.10+):
+
+   ```bash
+   pip install -e .
+   ```
+
+2. Execute the CLI against a target root folder:
+
+   ```bash
+   map-maker /path/to/NAS --provider stub
+   ```
+
+   The tool walks the tree in post-order, classifies each folder, and writes a `folder_persona.json` beside every directory. Re-run the command to reuse personas when the structural hash has not changed.
+
+3. Optional: configure a live LLM backend
+
+   * Fireworks.ai: set `FIREWORKS_API_KEY` (and optionally `FIREWORKS_MODEL`), then run with `--provider fireworks`.
+   * Ollama: set `OLLAMA_HOST` if different from `http://localhost:11434` and optionally `OLLAMA_MODEL`, then run with `--provider ollama`.
+
+Symlink loops are skipped by default; pass `--follow-symlinks` to traverse them deliberately. Use `--parallel` to enable parallel child processing within a directory.
+
