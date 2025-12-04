@@ -1,0 +1,37 @@
+# Map Maker Configuration File
+# Copy this file to config.yaml and fill in your actual values
+
+# Specify the root path to index
+root_path: /path/to/your/documents
+
+# LLM Provider Configuration
+llm:
+  # Options: stub, fireworks, ollama
+  provider: fireworks
+
+  # For Fireworks.ai (uncomment and configure):
+  # api_key_env: FIREWORKS_API_KEY  # reads from environment variable
+  api_key: your_fireworks_api_key_here
+  model: llama4-maverick-instruct-basic
+
+  # For Ollama (local LLM, uncomment and configure):
+  # host: http://localhost:11434
+  # model: llama3
+
+# Processing Options
+processing:
+  follow_symlinks: false
+  allow_parallel: false
+  min_text_files: 5
+  sample_limit: 10
+  sample_bytes: 2048
+
+# Semantic Constraints for Root Folders
+root_constraints:
+  business: "Strictly commercial, financial, legal, strategic, and operational content. EXCLUDES: personal, family, domestic, medical, hobby, intimate, or unrelated materials."
+  private: "Strictly personal, family, health, education, hobbies, and private financial documents. EXCLUDES: corporate, client, revenue-generating, or organizational materials."
+
+# Schema Settings
+schema_version: "1.1"
+default_language: en
+default_confidence: 0.82

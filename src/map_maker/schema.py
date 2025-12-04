@@ -26,6 +26,7 @@ class Meta(BaseModel):
 class Constraints(BaseModel):
     path_context: str
     root_rule: str
+    parent_constraint: Optional[str] = None  # Added for hierarchical constraints
 
 
 class Persona(BaseModel):

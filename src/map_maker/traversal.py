@@ -6,6 +6,8 @@ from concurrent.futures import ThreadPoolExecutor, wait
 from pathlib import Path
 from typing import Iterable, List, Optional, Set, Tuple
 
+from pydantic import BaseModel, Field, ValidationError
+
 from .config import (
     DEFAULT_CONFIDENCE,
     MIN_TEXT_FILES,
@@ -14,37 +16,194 @@ from .config import (
     build_path_context,
     detect_root_constraint,
 )
+from .database import PersonaDatabase
 from .llm import BaseLLM, safe_generate
-from pydantic import ValidationError
 
 from .schema import Constraints, FolderPersona, Meta, NodeType, Persona, VectorData
 from .text_extraction import is_textual, safe_extract, sample_files
 
+
+# Pydantic schema for structured JSON output
+class PersonaResponse(BaseModel):
+    """Schema for LLM response"""
+    persona: Persona
+    vector_data: VectorData = Field(default_factory=VectorData)
+
 SYSTEM_PROMPT_LEAF = """
 You are Map Maker, a semantic file system classifier.
 Obey path constraints strictly.
-Reject outliers. Never hallucinate details.
-Return concise JSON persona fields.
+Reject outliers. Never hallucate details.
+
+CRITICAL: You MUST return ONLY valid JSON matching this exact structure, with no additional text before or after:
+{
+  "persona": {
+    "short_label": "Brief folder name",
+    "description": "Concise semantic description",
+    "derived_from": ["file1.pdf", "file2.docx"],
+    "negative_constraints": ["what doesn't belong here"]
+  },
+  "vector_data": {
+    "hypothetical_user_queries": [
+      "Natural language question 1 someone might ask to find this folder",
+      "Natural language question 2",
+      "Natural language question 3"
+    ]
+  }
+}
 """.strip()
 
 SYSTEM_PROMPT_BRANCH = """
 You are Map Maker, a semantic aggregator.
 You synthesize meaning from child folders only.
 Never invent data not present in children or path constraints.
-Return concise JSON persona fields.
+
+CRITICAL: You MUST return ONLY valid JSON matching this exact structure, with no additional text before or after:
+{
+  "persona": {
+    "short_label": "Brief category name",
+    "description": "Parent-level definition unifying children",
+    "derived_from": ["Child1", "Child2"],
+    "negative_constraints": ["what doesn't belong"]
+  },
+  "vector_data": {
+    "hypothetical_user_queries": [
+      "Natural language question 1 someone might ask to find this folder",
+      "Natural language question 2",
+      "Natural language question 3"
+    ]
+  }
+}
 """.strip()
 
 
 class PersonaBuilder:
-    def __init__(self, settings: BuilderSettings, llm: BaseLLM):
+    def __init__(self, settings: BuilderSettings, llm: BaseLLM, database: PersonaDatabase):
         self.settings = settings
         self.llm = llm
+        self.database = database
         self.visited: Set[Path] = set()
 
     def build_for_root(self, root: Path) -> FolderPersona:
         return self._process_directory(root, depth=0)
 
+    def refine_with_parent_constraints(self, root: Path) -> None:
+        """
+        Second pass: Top-down refinement.
+        Apply parent constraints to children and re-generate personas.
+        """
+        self._refine_directory(root, parent_persona=None, depth=0)
+
+    def _refine_directory(self, path: Path, parent_persona: Optional[FolderPersona], depth: int) -> None:
+        """
+        Recursively refine personas with parent context (pre-order traversal).
+        """
+        # Load current persona from database
+        current_persona = self.database.load_persona(str(path))
+        if not current_persona:
+            return  # Skip if not processed in first pass
+
+        # Build parent constraint if parent exists
+        parent_constraint = None
+        if parent_persona:
+            parent_constraint = (
+                f"PARENT FOLDER: {parent_persona.persona.short_label}\n"
+                f"PARENT SCOPE: {parent_persona.persona.description}\n"
+                f"MUST BE: A subcategory or component of the parent scope\n"
+                f"MUST NOT BE: {', '.join(parent_persona.persona.negative_constraints)}"
+            )
+
+        # Re-process if parent constraint exists and is different
+        if parent_constraint and current_persona.constraints.parent_constraint != parent_constraint:
+            print(f"  Refining with parent context: {path}")
+            refined_persona = self._reprocess_with_parent_constraint(
+                path, current_persona, parent_constraint, depth
+            )
+            if refined_persona:
+                self.database.save_persona(refined_persona)
+                current_persona = refined_persona
+
+        # Recurse into children (pre-order: parent before children)
+        try:
+            children_dirs = [
+                p for p in path.iterdir()
+                if p.is_dir() and (self.settings.follow_symlinks or not p.is_symlink())
+            ]
+            for child in children_dirs:
+                self._refine_directory(child, current_persona, depth + 1)
+        except Exception:
+            pass  # Skip if can't read directory
+
+    def _reprocess_with_parent_constraint(
+        self, path: Path, current_persona: FolderPersona, parent_constraint: str, depth: int
+    ) -> Optional[FolderPersona]:
+        """Re-generate persona with parent constraint"""
+        try:
+            # Get files or children
+            files = [p for p in path.iterdir() if p.is_file()]
+            textual_files = [f for f in files if is_textual(f)]
+            children_dirs = [
+                p for p in path.iterdir()
+                if p.is_dir() and (self.settings.follow_symlinks or not p.is_symlink())
+            ]
+
+            root_rule = detect_root_constraint(self.settings.root_path, path)
+            path_context = build_path_context(self.settings.root_path, path)
+
+            # Re-build persona with parent constraint
+            if current_persona.meta.node_type == NodeType.LEAF:
+                persona, vector_data, audit_errors, sample_count = self._build_leaf_persona(
+                    path, textual_files, root_rule, path_context, parent_constraint
+                )
+            else:
+                # For BRANCH, load child personas from DB
+                child_results = []
+                for child in children_dirs:
+                    child_persona = self.database.load_persona(str(child))
+                    if child_persona:
+                        child_results.append((child, child_persona))
+
+                persona, vector_data, audit_errors, sample_count = self._build_branch_persona(
+                    path, child_results, textual_files, [], root_rule, path_context, parent_constraint
+                )
+
+            # Create updated persona with parent constraint
+            meta = Meta(
+                path=str(path),
+                node_type=current_persona.meta.node_type,
+                depth=depth,
+                confidence=DEFAULT_CONFIDENCE,
+                structural_hash=current_persona.meta.structural_hash,
+            )
+            constraints = Constraints(
+                path_context=path_context,
+                root_rule=root_rule,
+                parent_constraint=parent_constraint
+            )
+
+            folder_persona = FolderPersona(
+                meta=meta,
+                constraints=constraints,
+                persona=persona,
+                vector_data=vector_data,
+            )
+            folder_persona.audit.sample_count = sample_count
+            folder_persona.audit.errors = audit_errors
+
+            # Generate embedding for semantic search
+            self._generate_embedding(folder_persona)
+
+            return folder_persona
+        except Exception as e:
+            print(f"    Error refining {path}: {e}")
+            return None
+
     def _process_directory(self, path: Path, depth: int) -> FolderPersona:
+        # Check if folder already exists in database - skip if found
+        existing_persona = self.database.load_persona(str(path))
+        if existing_persona:
+            print(f"  [SKIP] Already in DB: {path}")
+            return existing_persona
+
         real = path.resolve()
         if real in self.visited and not self.settings.follow_symlinks:
             return self._symlink_placeholder(path, depth)
@@ -113,8 +272,11 @@ class PersonaBuilder:
         folder_persona.audit.sample_count = sample_count
         folder_persona.audit.errors = audit_errors
 
-        output_path = path / "folder_persona.json"
-        folder_persona.write(output_path)
+        # Generate embedding for semantic search
+        self._generate_embedding(folder_persona)
+
+        # Save to database instead of writing to file
+        self.database.save_persona(folder_persona)
         return folder_persona
 
     def _classify_node(self, text_count: int, subfolder_count: int, is_empty: bool) -> NodeType:
@@ -125,7 +287,7 @@ class PersonaBuilder:
         return NodeType.BRANCH
 
     def _build_leaf_persona(
-        self, path: Path, textual_files: List[Path], root_rule: str, path_context: str
+        self, path: Path, textual_files: List[Path], root_rule: str, path_context: str, parent_constraint: Optional[str] = None
     ) -> Tuple[Persona, VectorData, List[str], int]:
         samples = sample_files(textual_files, SAMPLE_LIMIT)
         snippets: List[str] = []
@@ -138,15 +300,25 @@ class PersonaBuilder:
             errors.extend(errs)
 
         file_snippets = "\n".join(snippets)
-        user_prompt = (
-            f"Absolute path: {path}\n"
-            f"Hierarchy: {list(path.parts)}\n"
-            f"GLOBAL CONSTRAINT: {root_rule}\n"
-            f"PATH CONTEXT: {path_context}\n"
-            f"FILES:\n{file_snippets}\n"
+
+        # Build prompt with optional parent constraint
+        prompt_parts = [
+            f"Absolute path: {path}",
+            f"Hierarchy: {list(path.parts)}",
+            f"GLOBAL CONSTRAINT: {root_rule}",
+            f"PATH CONTEXT: {path_context}",
+        ]
+
+        if parent_constraint:
+            prompt_parts.append(f"\n{parent_constraint}\n")
+
+        prompt_parts.extend([
+            f"FILES:\n{file_snippets}",
             "TASK: Identify the semantic category and produce concise JSON persona fields."
-        )
-        response = safe_generate(self.llm, SYSTEM_PROMPT_LEAF, user_prompt)
+        ])
+
+        user_prompt = "\n".join(prompt_parts)
+        response = safe_generate(self.llm, SYSTEM_PROMPT_LEAF, user_prompt, response_schema=PersonaResponse)
         persona, vector_data, validation_errors = self._parse_llm_response(
             response.content,
             path.name or "Root",
@@ -163,6 +335,7 @@ class PersonaBuilder:
         loose_files: List[Path],
         root_rule: str,
         path_context: str,
+        parent_constraint: Optional[str] = None,
     ) -> Tuple[Persona, VectorData, List[str], int]:
         lines: List[str] = []
         derived_from: List[str] = []
@@ -177,15 +350,25 @@ class PersonaBuilder:
             derived_from.append("LooseFiles")
 
         children_block = "\n".join(lines)
-        user_prompt = (
-            f"Absolute path: {path}\n"
-            f"Hierarchy: {list(path.parts)}\n"
-            f"GLOBAL CONSTRAINT: {root_rule}\n"
-            f"PATH CONTEXT: {path_context}\n"
-            f"CHILDREN:\n{children_block}\n"
+
+        # Build prompt with optional parent constraint
+        prompt_parts = [
+            f"Absolute path: {path}",
+            f"Hierarchy: {list(path.parts)}",
+            f"GLOBAL CONSTRAINT: {root_rule}",
+            f"PATH CONTEXT: {path_context}",
+        ]
+
+        if parent_constraint:
+            prompt_parts.append(f"\n{parent_constraint}\n")
+
+        prompt_parts.extend([
+            f"CHILDREN:\n{children_block}",
             "TASK: Write a parent-level definition that unifies these children into a precise category header."
-        )
-        response = safe_generate(self.llm, SYSTEM_PROMPT_BRANCH, user_prompt)
+        ])
+
+        user_prompt = "\n".join(prompt_parts)
+        response = safe_generate(self.llm, SYSTEM_PROMPT_BRANCH, user_prompt, response_schema=PersonaResponse)
         persona, vector_data, validation_errors = self._parse_llm_response(
             response.content,
             path.name or "Root",
@@ -256,13 +439,35 @@ class PersonaBuilder:
         return "Loose files sample: " + ", ".join(names[:6]) + " (+more)"
 
     def _load_existing_persona(self, path: Path) -> Optional[FolderPersona]:
-        persona_path = path / "folder_persona.json"
-        if persona_path.exists():
-            try:
-                return FolderPersona.from_file(persona_path)
-            except Exception:
-                return None
-        return None
+        # Load from database instead of file
+        try:
+            return self.database.load_persona(str(path))
+        except Exception:
+            return None
+
+    def _generate_embedding(self, folder_persona: FolderPersona) -> None:
+        """Generate embedding vector for semantic search"""
+        # Only generate embeddings for Fireworks LLM
+        from .llm import FireworksLLM
+        if not isinstance(self.llm, FireworksLLM):
+            return
+
+        # Combine description and queries for embedding
+        text_parts = [
+            folder_persona.persona.short_label,
+            folder_persona.persona.description,
+        ]
+        text_parts.extend(folder_persona.vector_data.hypothetical_user_queries)
+
+        embedding_text = " | ".join(text_parts)
+
+        try:
+            embedding = self.llm.generate_embedding(embedding_text)
+            if embedding:
+                folder_persona.vector_data.embedding = embedding
+                folder_persona.vector_data.embedding_model = self.llm.embedding_model
+        except Exception as e:
+            print(f"  Warning: Could not generate embedding: {e}")
 
     def _symlink_placeholder(self, path: Path, depth: int) -> FolderPersona:
         root_rule = detect_root_constraint(self.settings.root_path, path)
@@ -285,9 +490,10 @@ class PersonaBuilder:
             persona=persona,
         )
         folder_persona.audit.errors.append("Symlink loop detected; skipped.")
-        output_path = path / "folder_persona.json"
+
+        # Save to database instead of writing to file
         try:
-            folder_persona.write(output_path)
+            self.database.save_persona(folder_persona)
         except Exception:
             pass
         return folder_persona
