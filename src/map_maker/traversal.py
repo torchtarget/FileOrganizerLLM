@@ -15,7 +15,9 @@ from .config import (
     detect_root_constraint,
 )
 from .llm import BaseLLM, safe_generate
-from .schema import Constraints, FolderPersona, Meta, NodeType, Persona
+from pydantic import ValidationError
+
+from .schema import Constraints, FolderPersona, Meta, NodeType, Persona, VectorData
 from .text_extraction import is_textual, safe_extract, sample_files
 
 SYSTEM_PROMPT_LEAF = """
@@ -85,11 +87,11 @@ class PersonaBuilder:
         path_context = build_path_context(self.settings.root_path, path)
 
         if node_type == NodeType.LEAF:
-            persona, audit_errors, sample_count = self._build_leaf_persona(
+            persona, vector_data, audit_errors, sample_count = self._build_leaf_persona(
                 path, textual_files, root_rule, path_context
             )
         else:
-            persona, audit_errors, sample_count = self._build_branch_persona(
+            persona, vector_data, audit_errors, sample_count = self._build_branch_persona(
                 path, child_results, textual_files, loose_files, root_rule, path_context
             )
 
@@ -106,6 +108,7 @@ class PersonaBuilder:
             meta=meta,
             constraints=constraints,
             persona=persona,
+            vector_data=vector_data,
         )
         folder_persona.audit.sample_count = sample_count
         folder_persona.audit.errors = audit_errors
@@ -123,7 +126,7 @@ class PersonaBuilder:
 
     def _build_leaf_persona(
         self, path: Path, textual_files: List[Path], root_rule: str, path_context: str
-    ) -> Tuple[Persona, List[str], int]:
+    ) -> Tuple[Persona, VectorData, List[str], int]:
         samples = sample_files(textual_files, SAMPLE_LIMIT)
         snippets: List[str] = []
         errors: List[str] = []
@@ -144,15 +147,13 @@ class PersonaBuilder:
             "TASK: Identify the semantic category and produce concise JSON persona fields."
         )
         response = safe_generate(self.llm, SYSTEM_PROMPT_LEAF, user_prompt)
-        description = response.content[:800]
-
-        persona = Persona(
-            short_label=path.name or "Root",
-            description=description,
-            derived_from=derived_from,
-            negative_constraints=[],
+        persona, vector_data, validation_errors = self._parse_llm_response(
+            response.content,
+            path.name or "Root",
+            derived_from,
         )
-        return persona, errors, len(samples)
+        errors.extend(validation_errors)
+        return persona, vector_data, errors, len(samples)
 
     def _build_branch_persona(
         self,
@@ -162,7 +163,7 @@ class PersonaBuilder:
         loose_files: List[Path],
         root_rule: str,
         path_context: str,
-    ) -> Tuple[Persona, List[str], int]:
+    ) -> Tuple[Persona, VectorData, List[str], int]:
         lines: List[str] = []
         derived_from: List[str] = []
         errors: List[str] = []
@@ -185,16 +186,66 @@ class PersonaBuilder:
             "TASK: Write a parent-level definition that unifies these children into a precise category header."
         )
         response = safe_generate(self.llm, SYSTEM_PROMPT_BRANCH, user_prompt)
-        description = response.content[:800]
+        persona, vector_data, validation_errors = self._parse_llm_response(
+            response.content,
+            path.name or "Root",
+            derived_from,
+        )
+        errors.extend(validation_errors)
+        sample_count = len(textual_files)
+        return persona, vector_data, errors, sample_count
 
-        persona = Persona(
-            short_label=path.name or "Root",
-            description=description,
+    def _parse_llm_response(
+        self, content: str, default_label: str, derived_from: List[str]
+    ) -> Tuple[Persona, VectorData, List[str]]:
+        errors: List[str] = []
+        fallback_description = content[:800]
+        fallback_persona = Persona(
+            short_label=default_label,
+            description=fallback_description,
             derived_from=derived_from,
             negative_constraints=[],
         )
-        sample_count = len(textual_files)
-        return persona, errors, sample_count
+        fallback_vector = VectorData()
+
+        try:
+            payload = json.loads(content)
+        except json.JSONDecodeError as exc:
+            errors.append(f"LLM response was not valid JSON: {exc}")
+            return fallback_persona, fallback_vector, errors
+
+        if not isinstance(payload, dict):
+            errors.append("LLM response JSON was not an object; using fallback persona.")
+            return fallback_persona, fallback_vector, errors
+
+        persona_payload = payload.get("persona", payload)
+        if not isinstance(persona_payload, dict):
+            errors.append("LLM persona payload was not an object; using fallback persona.")
+            return fallback_persona, fallback_vector, errors
+
+        persona_payload.setdefault("short_label", default_label)
+        persona_payload.setdefault("description", fallback_description)
+        persona_payload.setdefault("derived_from", derived_from)
+        persona_payload.setdefault("negative_constraints", [])
+
+        try:
+            persona = Persona(**persona_payload)
+        except ValidationError as exc:  # pragma: no cover - defensive guard
+            errors.append(f"Persona validation failed; using fallback. Details: {exc}")
+            persona = fallback_persona
+
+        vector_payload = payload.get("vector_data", {})
+        if not isinstance(vector_payload, dict):
+            errors.append("LLM vector_data payload was not an object; ignoring vector data.")
+            vector_payload = {}
+
+        try:
+            vector_data = VectorData(**vector_payload)
+        except ValidationError as exc:  # pragma: no cover - defensive guard
+            errors.append(f"Vector data validation failed; using empty vector data. Details: {exc}")
+            vector_data = fallback_vector
+
+        return persona, vector_data, errors
 
     def _summarize_loose_files(self, files: Iterable[Path]) -> str:
         names = [p.name for p in files]

@@ -55,11 +55,11 @@ Workflow
 o	Split path /Business/Finance/Invoices_2023 → hierarchy ["Business", "Finance", "Invoices_2023"].
 o	Prepend global constraint (Business vs Private).
 2.	Sample Files
-o	Up to 15 text-like files.
-o	Selection strategy:
+o	Up to 10 text-like files.
+o	Selection strategy (deterministic, no true randomness needed):
 	include 3 oldest
 	include 3 newest
-	fill rest via random sampling
+	fill the remaining slots with evenly spaced picks from the middle set
 o	Read first 2KB of each.
 3.	Clean Parsing
 o	Skip unreadable PDFs (OCR garbage).
@@ -84,8 +84,8 @@ TASK:
 3. Produce a concise folder persona.
 4. Follow the target JSON schema exactly.
 5.	Validation
-o	Pydantic enforces schema.
-o	If invalid → retry with simplified prompt.
+o	The LLM is expected to emit a JSON object with `persona` and optional `vector_data`.
+o	Pydantic validates the JSON; invalid or non-object responses fall back to a minimal persona that preserves the LLM description and derived-from files while recording validation errors in the audit block.
 ________________________________________
 5. BRANCH NODE LOGIC (Child Aggregation)
 Use Case: Folder contains conceptual subfolders, not files (e.g. /Business/Finance/).
