@@ -78,17 +78,20 @@ def safe_extract(path: Path) -> Tuple[str, List[str]]:
 
 def sample_files(files: Iterable[Path], limit: int) -> List[Path]:
     candidates = sorted(files, key=lambda p: p.stat().st_mtime)
+    if len(candidates) <= limit:
+        return candidates
+
     oldest = candidates[:3]
     newest = candidates[-3:]
     remaining_pool = [f for f in candidates if f not in oldest + newest]
 
     remaining_needed = max(0, limit - len(oldest) - len(newest))
-    # deterministic pseudo-random by alternating selection
     sampled: List[Path] = []
-    for idx, path in enumerate(remaining_pool):
-        if len(sampled) >= remaining_needed:
-            break
-        if idx % 2 == 0:
-            sampled.append(path)
-    combined = list(dict.fromkeys(oldest + newest + sampled))
+    if remaining_needed > 0 and remaining_pool:
+        stride = max(1, len(remaining_pool) // remaining_needed)
+        for idx in range(remaining_needed):
+            pick_index = min(idx * stride, len(remaining_pool) - 1)
+            sampled.append(remaining_pool[pick_index])
+
+    combined = list(dict.fromkeys(oldest + sampled + newest))
     return combined[:limit]
