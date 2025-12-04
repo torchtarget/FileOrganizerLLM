@@ -1,1 +1,219 @@
 # FileOrganizerLLM
+Technical Specification: Semantic Folder Persona Builder
+Codename: “Map Maker”
+Version: 1.1
+________________________________________
+1. Executive Summary
+Map Maker generates a semantic index for an entire NAS by creating a folder_persona.json file inside every directory.
+It uses post-order traversal to derive meaning:
+•	Context flows down: A folder’s position in the hierarchy constrains expected meaning.
+•	Meaning flows up: The real definition of a folder emerges from its files (LEAF) or its children (BRANCH).
+The core mechanism is a post-order recursive algorithm that processes child folders first, then synthesizes the persona of the current folder from either:
+•	its file content (LEAF mode), or
+•	the summaries of its children (BRANCH mode).
+________________________________________
+2. Technical Stack
+•	Language: Python 3.10+
+•	LLM Providers:
+o	Fireworks.ai (llama-v3-70b-instruct, mixtral-8x22b)
+o	Ollama (local models)
+•	File Readers: pypdf, python-docx, pathlib, standard text extraction
+•	Schema Enforcement: Pydantic (v2.x)
+•	Optional Future Components: Vector embeddings (OpenAI, Fireworks, SentenceTransformers)
+________________________________________
+3. Traversal Algorithm: Post-Order
+Core function:
+def build_persona(current_path) -> PersonaJSON:
+Traversal Logic
+1.	List immediate subdirectories.
+2.	Recurse into each child using post-order.
+3.	Once recursion returns, classify the current folder:
+o	If dominated by text files → LEAF NODE
+o	Else → BRANCH NODE
+To avoid infinite loops:
+•	Track visited realpaths (for symlink cycles).
+•	Enforce a safety depth limit if needed.
+LEAF / BRANCH Decision v1.1
+Compute:
+text_file_count = number of identifiable textual docs
+subfolder_count = number of child folders
+Rule:
+IF text_file_count >= MIN_TEXT_FILES (default 5)
+AND text_file_count >= 2 * subfolder_count
+    → LEAF
+ELSE
+    → BRANCH
+This prevents misclassification of mixed folders.
+Edge-case override:
+•	If folder is empty → force BRANCH (an empty conceptual category)
+•	If folder has both subfolders and many files → BRANCH, but treat loose files as a synthetic child.
+________________________________________
+4. LEAF NODE LOGIC (File-Driven Definition)
+Use Case: Folder primarily contains documents meaningful on their own (e.g. /Business/Finance/Invoices_2023).
+Workflow
+1.	Path Context Extraction
+o	Split path /Business/Finance/Invoices_2023 → hierarchy ["Business", "Finance", "Invoices_2023"].
+o	Prepend global constraint (Business vs Private).
+2.	Sample Files
+o	Up to 15 text-like files.
+o	Selection strategy:
+	include 3 oldest
+	include 3 newest
+	fill rest via random sampling
+o	Read first 2KB of each.
+3.	Clean Parsing
+o	Skip unreadable PDFs (OCR garbage).
+o	Strip DOCX boilerplate.
+4.	LLM Prompt
+SYSTEM:
+You are Map Maker, a semantic file system classifier.
+Obey path constraints strictly. 
+Reject outliers. Never hallucinate details.
+
+CONTEXT:
+Absolute path: {path}
+Hierarchy: {["Business", "Finance", ...]}
+GLOBAL CONSTRAINT: {root_constraint}
+
+FILES:
+{file_snippets}
+
+TASK:
+1. Identify the dominant semantic category.
+2. Ignore or flag outliers.
+3. Produce a concise folder persona.
+4. Follow the target JSON schema exactly.
+5.	Validation
+o	Pydantic enforces schema.
+o	If invalid → retry with simplified prompt.
+________________________________________
+5. BRANCH NODE LOGIC (Child Aggregation)
+Use Case: Folder contains conceptual subfolders, not files (e.g. /Business/Finance/).
+Workflow
+1.	Load all child personas.
+2.	Extract:
+o	short_label
+o	description
+o	negative_constraints
+3.	If loose files exist, treat as pseudo-child "LooseFiles" with its own micro-summary.
+4.	LLM Prompt:
+SYSTEM:
+You are Map Maker, a semantic aggregator.
+You synthesize meaning from child folders only.
+Never invent data not present in children or path constraints.
+
+CONTEXT:
+Absolute path: {path}
+Hierarchy: {["Business", "Finance"]}
+GLOBAL CONSTRAINT: {root_constraint}
+
+CHILDREN:
+{child_label_1}: {child_description_1}
+{child_label_2}: {child_description_2}
+...
+
+TASK:
+Write a parent-level definition that unifies these children into a precise category header.
+Include negative constraints only if children imply them.
+Return strict JSON only.
+________________________________________
+6. JSON Output Schema (folder_persona.json v1.1)
+{
+  "schema_version": "1.1",
+
+  "meta": {
+    "path": "/NAS/Business/Finance",
+    "node_type": "BRANCH",
+    "depth": 2,
+    "language": "en",
+    "confidence": 0.82
+  },
+
+  "constraints": {
+    "path_context": "Business > Finance",
+    "root_rule": "Strictly commercial, revenue-related, legal, and operational documents."
+  },
+
+  "persona": {
+    "short_label": "Finance & Compliance",
+    "description": "Central category for tax filings, invoicing workflows, accounting records, and financial-year documentation.",
+    "derived_from": ["Tax Returns", "Invoices", "Ledger Folders"],
+    "negative_constraints": ["Exclude personal finance", "Exclude HR materials"]
+  },
+
+  "vector_data": {
+    "hypothetical_user_queries": [
+      "Business finance records",
+      "Where are tax filings?",
+      "Invoices and accounting files"
+    ],
+    "embedding_model": null,
+    "embedding": null
+  },
+
+  "audit": {
+    "sample_count": 3,
+    "outliers_found": 0,
+    "errors": []
+  }
+}
+________________________________________
+7. Root Constraints (Semantic Seeds)
+Injected into every LLM prompt within a subtree:
+ROOT_CONSTRAINTS = {
+    "Business": (
+        "Strictly commercial, financial, legal, strategic, and operational content. "
+        "EXCLUDES: personal, family, domestic, medical, hobby, intimate, or unrelated materials."
+    ),
+    "Private": (
+        "Strictly personal, family, health, education, hobbies, and private financial documents. "
+        "EXCLUDES: corporate, client, revenue-generating, or organizational materials."
+    )
+}
+Detection rule:
+•	First segment of absolute path determines constraint.
+•	If unknown segment → fallback to “General: derive meaning only from content.”
+________________________________________
+8. Operational Enhancements (v1.1)
+8.1 Incremental Rebuilds
+Each folder gets a structural hash:
+hash = hash(filenames + modification_times + child_hashes)
+If hash unchanged → reuse existing persona.
+If changed → recompute and propagate upward.
+8.2 Error Handling
+audit.errors collects:
+•	unreadable files
+•	corrupted PDFs
+•	permission-denied folders
+•	symlink loops (skipped)
+8.3 Symlink Safety
+Track:
+visited_real_paths = set()
+Skip re-processing if seen before.
+8.4 Optional Parallelization
+•	Child folders within the same parent can be processed in parallel.
+•	Must enforce ordering: parent executes only after all children finish.
+________________________________________
+9. Future Extensions (Optional)
+Not required for v1.1, but architecturally anticipated:
+1.	Vector embeddings for semantic search
+2.	Federation across multiple NAS locations
+3.	Full audit dashboards
+4.	Interactive query agent (“Semantic Navigator”)
+5.	Retention policy inference
+________________________________________
+v1.1 Summary
+This refinement introduces:
+•	A robust LEAF/BRANCH decision rule
+•	Mixed-folder handling
+•	Safer file sampling and parsing
+•	Stronger system prompts
+•	Enforced root constraints at every level
+•	Confidence metrics
+•	Hash-based incremental recomputation
+•	Cleaner JSON schema with versioning
+•	Error tracking
+•	Symlink-safe traversal
+It’s now a production-friendly and stable semantic-indexing architecture that remains elegant and extensible.
+________________________________________
+
